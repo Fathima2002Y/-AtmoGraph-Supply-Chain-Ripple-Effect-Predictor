@@ -1,0 +1,6 @@
+node_id,name,category,importance
+PR001,Semiconductor Chip,Electronics,0.95
+PR002,Smartphone,Consumer Electronics,0.90
+PR003,Automotive Control Unit,Automotive,0.85
+PR004,Lithium Battery Pack,Battery,0.90
+PR005,Smart Sensor,Electronics,0.80

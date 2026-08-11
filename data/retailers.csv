@@ -1,0 +1,7 @@
+node_id,name,country,capacity,risk_score,status
+R001,US Electronics Retailer,USA,700,0.08,normal
+R002,India Electronics Retailer,India,650,0.07,normal
+R003,France Technology Retailer,France,500,0.06,normal
+R004,Singapore Electronics Retailer,Singapore,450,0.05,normal
+R005,Japan Smart Device Retailer,Japan,550,0.06,normal
+R006,Canada Consumer Electronics,Canada,500,0.07,normal

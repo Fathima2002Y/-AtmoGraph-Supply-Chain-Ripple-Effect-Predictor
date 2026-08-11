@@ -1,0 +1,5 @@
+node_id,name,country,capacity,risk_score,status
+P001,Rotterdam Port,Netherlands,5000,0.10,normal
+P002,Singapore Port,Singapore,6000,0.08,normal
+P003,Los Angeles Port,USA,4500,0.12,normal
+P004,Mumbai Port,India,4000,0.09,normal

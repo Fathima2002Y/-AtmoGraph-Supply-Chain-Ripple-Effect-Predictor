@@ -1,0 +1,6 @@
+node_id,name,country,industry,capacity,risk_score,status
+M001,European Electronics Manufacturing,Germany,Electronics,800,0.10,normal
+M002,Asia Electronics Factory,Vietnam,Electronics,950,0.09,normal
+M003,Central Europe Auto Systems,Czech Republic,Automotive,700,0.11,normal
+M004,India Consumer Electronics Plant,India,Electronics,850,0.08,normal
+M005,Japan Smart Device Factory,Japan,Electronics,750,0.07,normal

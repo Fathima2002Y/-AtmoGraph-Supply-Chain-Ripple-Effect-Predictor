@@ -1,0 +1,9 @@
+node_id,name,country,industry,capacity,risk_score,status
+S001,Taiwan Silicon Supplier,Taiwan,Semiconductor,1000,0.10,normal
+S002,Seoul Electronic Components,South Korea,Electronics,850,0.08,normal
+S003,German Industrial Parts,Germany,Automotive,700,0.12,normal
+S004,Shenzhen Circuit Systems,China,Electronics,1200,0.09,normal
+S005,Osaka Sensor Technologies,Japan,Electronics,650,0.07,normal
+S006,India Battery Materials,India,Battery,900,0.11,normal
+S007,Malaysia Semiconductor Materials,Malaysia,Semiconductor,750,0.08,normal
+S008,Poland Automotive Components,Poland,Automotive,600,0.10,normal
