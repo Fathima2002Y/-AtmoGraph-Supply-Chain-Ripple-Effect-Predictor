@@ -47,6 +47,6 @@ def run_scenario(node_id, severity="high"):
 if __name__ == "__main__":
 
     run_scenario(
-        node_id="P001",
+        node_id="P002",
         severity="high"
     )

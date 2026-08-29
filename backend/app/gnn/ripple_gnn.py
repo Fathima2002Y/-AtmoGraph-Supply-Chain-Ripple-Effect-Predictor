@@ -50,4 +50,7 @@ class RippleGNN(torch.nn.Module):
         # Final prediction
         x = self.output_layer(x)
 
+        # Convert prediction to risk probability [0, 1]
+        x = torch.sigmoid(x)
+
         return x
