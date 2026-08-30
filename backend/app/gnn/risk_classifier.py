@@ -1,5 +1,5 @@
 def classify_risk(risk_score):
-    
+
     if risk_score >= 0.60:
         return "HIGH"
 

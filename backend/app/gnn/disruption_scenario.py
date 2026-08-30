@@ -65,15 +65,3 @@ def reset_disruptions():
         record = result.single()
 
         return record["reset_count"]
-
-
-if __name__ == "__main__":
-
-    print("Testing disruption scenario")
-
-    result = apply_disruption(
-        "P002",
-        "high"
-    )
-
-    print(result)

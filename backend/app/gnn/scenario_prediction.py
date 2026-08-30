@@ -17,7 +17,7 @@ def run_scenario(node_id, severity="high"):
 
     if affected_node is None:
         print(f"Node {node_id} was not found.")
-        return
+        return None
 
     print("\nAffected node:")
     print(affected_node)
@@ -42,6 +42,11 @@ def run_scenario(node_id, severity="high"):
             f"Risk: {prediction['predicted_risk']:.4f} | "
             f"Level: {prediction['risk_level']}"
         )
+
+    return {
+        "affected_node": affected_node,
+        "predictions": predictions
+    }
 
 
 if __name__ == "__main__":
