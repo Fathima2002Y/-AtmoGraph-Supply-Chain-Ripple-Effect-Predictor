@@ -3,6 +3,10 @@ from pydantic import BaseModel, Field
 
 from backend.app.gnn.scenario_prediction import run_scenario
 from backend.app.gnn.disruption_scenario import reset_disruptions
+from backend.app.database.graph_repository import (
+    get_supply_chain_graph,
+    get_node_neighbors
+)
 
 
 router = APIRouter(
@@ -12,6 +16,7 @@ router = APIRouter(
 
 
 class ScenarioRequest(BaseModel):
+
     node_id: str = Field(
         ...,
         description="Supply chain node ID affected by the disruption",
@@ -27,18 +32,83 @@ class ScenarioRequest(BaseModel):
 
 @router.get("/health")
 def health_check():
+
     return {
         "status": "healthy",
         "service": "AtmoGraph API"
     }
 
 
+@router.get("/graph")
+def get_graph():
+
+    try:
+
+        graph = get_supply_chain_graph()
+
+        return {
+            "total_nodes": len(graph["nodes"]),
+            "total_relationships": len(
+                graph["relationships"]
+            ),
+            "nodes": graph["nodes"],
+            "relationships": graph["relationships"]
+        }
+
+    except Exception as error:
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(error)
+        )
+
+
+@router.get("/graph/{node_id}/neighbors")
+def get_neighbors(node_id: str):
+
+    try:
+
+        neighbors = get_node_neighbors(
+            node_id
+        )
+
+        if neighbors is None:
+
+            raise HTTPException(
+                status_code=404,
+                detail=f"Node {node_id} was not found"
+            )
+
+        return {
+            "node_id": node_id,
+            "neighbor_count": len(neighbors),
+            "neighbors": neighbors
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as error:
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(error)
+        )
+
+
 @router.post("/scenario")
-def predict_scenario(request: ScenarioRequest):
+def predict_scenario(
+    request: ScenarioRequest
+):
 
     severity = request.severity.lower()
 
-    if severity not in {"low", "medium", "high"}:
+    if severity not in {
+        "low",
+        "medium",
+        "high"
+    }:
+
         raise HTTPException(
             status_code=400,
             detail="Severity must be low, medium, or high"
@@ -52,6 +122,7 @@ def predict_scenario(request: ScenarioRequest):
         )
 
         if result is None:
+
             raise HTTPException(
                 status_code=404,
                 detail=f"Node {request.node_id} was not found"
@@ -96,6 +167,7 @@ def predict_scenario(request: ScenarioRequest):
         raise
 
     except Exception as error:
+
         raise HTTPException(
             status_code=500,
             detail=str(error)
@@ -111,7 +183,10 @@ def reset_scenario():
 
         return {
             "status": "success",
-            "message": "All disruption scenarios have been reset",
+            "message": (
+                "All disruption scenarios "
+                "have been reset"
+            ),
             "reset_nodes": reset_count
         }
 
