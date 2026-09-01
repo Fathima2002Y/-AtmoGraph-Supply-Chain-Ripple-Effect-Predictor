@@ -3,10 +3,14 @@ from pydantic import BaseModel, Field
 
 from backend.app.gnn.scenario_prediction import run_scenario
 from backend.app.gnn.disruption_scenario import reset_disruptions
+
 from backend.app.database.graph_repository import (
     get_supply_chain_graph,
     get_node_neighbors
 )
+
+from backend.app.nlp.news_analyzer import analyze_news
+from backend.app.nlp.disruption_processor import process_disruption_news
 
 
 router = APIRouter(
@@ -27,6 +31,18 @@ class ScenarioRequest(BaseModel):
         default="high",
         description="Disruption severity: low, medium, or high",
         examples=["high"]
+    )
+
+
+class NewsRequest(BaseModel):
+
+    text: str = Field(
+        ...,
+        min_length=5,
+        description="Supply chain news or disruption event text",
+        examples=[
+            "A major strike at Rotterdam Port has caused shipment delays."
+        ]
     )
 
 
@@ -68,9 +84,7 @@ def get_neighbors(node_id: str):
 
     try:
 
-        neighbors = get_node_neighbors(
-            node_id
-        )
+        neighbors = get_node_neighbors(node_id)
 
         if neighbors is None:
 
@@ -96,10 +110,44 @@ def get_neighbors(node_id: str):
         )
 
 
+@router.post("/news/analyze")
+def analyze_news_api(request: NewsRequest):
+
+    try:
+
+        result = analyze_news(request.text)
+
+        return result
+
+    except Exception as error:
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(error)
+        )
+
+
+@router.post("/news/process")
+def process_news_api(request: NewsRequest):
+
+    try:
+
+        result = process_disruption_news(
+            request.text
+        )
+
+        return result
+
+    except Exception as error:
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(error)
+        )
+
+
 @router.post("/scenario")
-def predict_scenario(
-    request: ScenarioRequest
-):
+def predict_scenario(request: ScenarioRequest):
 
     severity = request.severity.lower()
 
