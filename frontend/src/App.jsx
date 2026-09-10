@@ -22,6 +22,18 @@ const NODE_COLORS = {
   Product: "#ca8a04",
 };
 
+const NODE_TYPES = [
+  "All",
+  "Supplier",
+  "Manufacturer",
+  "Port",
+  "Distributor",
+  "Retailer",
+  "Product",
+];
+
+const RISK_TYPES = ["All", "High", "Medium", "Low"];
+
 function getNodeColor(nodeType) {
   return NODE_COLORS[nodeType] || "#64748b";
 }
@@ -32,7 +44,13 @@ function getRiskClass(riskScore) {
   return "low";
 }
 
-function createFlowNodes(apiNodes) {
+function getRiskLevel(riskScore) {
+  if (riskScore >= 0.7) return "HIGH";
+  if (riskScore >= 0.4) return "MEDIUM";
+  return "LOW";
+}
+
+function createFlowNodes(apiNodes, selectedNodeId) {
   const groupedNodes = {
     Supplier: [],
     Manufacturer: [],
@@ -62,15 +80,19 @@ function createFlowNodes(apiNodes) {
   Object.entries(groupedNodes).forEach(([type, typeNodes]) => {
     typeNodes.forEach((node, index) => {
       const basePosition = positions[type];
+      const riskScore = Number(node.risk_score || 0);
 
       nodes.push({
         id: node.node_id,
+
         position: {
           x: basePosition.x,
           y: basePosition.y + index * 95,
         },
+
         data: {
           node_type: node.node_type,
+
           label: (
             <div className="graph-node">
               <div
@@ -83,25 +105,35 @@ function createFlowNodes(apiNodes) {
               <div className="node-name">{node.name}</div>
 
               <div className="node-risk">
-                Risk: {Number(node.risk_score).toFixed(2)}
+                Risk: {riskScore.toFixed(2)}
               </div>
 
-              <div
-                className={`node-status ${getRiskClass(
-                  Number(node.risk_score)
-                )}`}
-              >
-                {node.status}
+              <div className={`node-status ${getRiskClass(riskScore)}`}>
+                {node.status || getRiskLevel(riskScore)}
               </div>
             </div>
           ),
         },
+
         style: {
-          border: `2px solid ${getNodeColor(node.node_type)}`,
+          border:
+            selectedNodeId === node.node_id
+              ? "3px solid #111827"
+              : `2px solid ${getNodeColor(node.node_type)}`,
+
           borderRadius: "12px",
-          background: "#ffffff",
+
+          background:
+            selectedNodeId === node.node_id ? "#f8fafc" : "#ffffff",
+
           width: 190,
+
           padding: "10px",
+
+          boxShadow:
+            selectedNodeId === node.node_id
+              ? "0 0 0 3px rgba(17, 24, 39, 0.12)"
+              : "none",
         },
       });
     });
@@ -110,30 +142,51 @@ function createFlowNodes(apiNodes) {
   return nodes;
 }
 
-function createFlowEdges(apiRelationships) {
-  return apiRelationships.map((relationship, index) => ({
-    id: `edge-${relationship.source_id}-${relationship.target_id}-${index}`,
-    source: relationship.source_id,
-    target: relationship.target_id,
-    label: relationship.relationship_type,
-    type: "smoothstep",
-    animated: false,
-    style: {
-      strokeWidth: 1.5,
-    },
-    labelStyle: {
-      fontSize: 9,
-      fontWeight: 600,
-    },
-  }));
+function createFlowEdges(apiRelationships, visibleNodeIds) {
+  return apiRelationships
+    .filter(
+      (relationship) =>
+        visibleNodeIds.has(relationship.source_id) &&
+        visibleNodeIds.has(relationship.target_id)
+    )
+    .map((relationship, index) => ({
+      id: `edge-${relationship.source_id}-${relationship.target_id}-${index}`,
+
+      source: relationship.source_id,
+
+      target: relationship.target_id,
+
+      label: relationship.relationship_type,
+
+      type: "smoothstep",
+
+      animated: false,
+
+      style: {
+        strokeWidth: 1.5,
+      },
+
+      labelStyle: {
+        fontSize: 9,
+        fontWeight: 600,
+      },
+    }));
 }
 
 function App() {
+  const [apiNodes, setApiNodes] = useState([]);
+  const [apiRelationships, setApiRelationships] = useState([]);
+
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
 
   const [summary, setSummary] = useState(null);
   const [topRisks, setTopRisks] = useState([]);
+
+  const [selectedNodeId, setSelectedNodeId] = useState(null);
+
+  const [nodeTypeFilter, setNodeTypeFilter] = useState("All");
+  const [riskFilter, setRiskFilter] = useState("All");
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -152,11 +205,13 @@ function App() {
 
       const graphData = graphResponse.data;
 
-      setNodes(createFlowNodes(graphData.nodes || []));
-      setEdges(createFlowEdges(graphData.relationships || []));
+      setApiNodes(graphData.nodes || []);
+      setApiRelationships(graphData.relationships || []);
 
       setSummary(summaryResponse.data);
       setTopRisks(topRiskResponse.data.nodes || []);
+
+      setSelectedNodeId(null);
     } catch (err) {
       console.error("Failed to load AtmoGraph data:", err);
 
@@ -166,11 +221,69 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, [setNodes, setEdges]);
+  }, []);
 
   useEffect(() => {
     loadGraph();
   }, [loadGraph]);
+
+  const filteredApiNodes = useMemo(() => {
+    return apiNodes.filter((node) => {
+      const riskScore = Number(node.risk_score || 0);
+      const riskLevel = getRiskLevel(riskScore);
+
+      const matchesNodeType =
+        nodeTypeFilter === "All" || node.node_type === nodeTypeFilter;
+
+      const matchesRisk =
+        riskFilter === "All" || riskLevel === riskFilter.toUpperCase();
+
+      return matchesNodeType && matchesRisk;
+    });
+  }, [apiNodes, nodeTypeFilter, riskFilter]);
+
+  useEffect(() => {
+    const visibleNodeIds = new Set(
+      filteredApiNodes.map((node) => node.node_id)
+    );
+
+    const flowNodes = createFlowNodes(
+      filteredApiNodes,
+      selectedNodeId
+    );
+
+    const flowEdges = createFlowEdges(
+      apiRelationships,
+      visibleNodeIds
+    );
+
+    setNodes(flowNodes);
+    setEdges(flowEdges);
+  }, [
+    filteredApiNodes,
+    apiRelationships,
+    selectedNodeId,
+    setNodes,
+    setEdges,
+  ]);
+
+  const selectedNode = useMemo(() => {
+    return apiNodes.find((node) => node.node_id === selectedNodeId) || null;
+  }, [apiNodes, selectedNodeId]);
+
+  const handleNodeClick = useCallback((event, node) => {
+    setSelectedNodeId(node.id);
+  }, []);
+
+  const handlePaneClick = useCallback(() => {
+    setSelectedNodeId(null);
+  }, []);
+
+  const resetFilters = () => {
+    setNodeTypeFilter("All");
+    setRiskFilter("All");
+    setSelectedNodeId(null);
+  };
 
   const miniMapNodeColor = useCallback(
     (node) => getNodeColor(node.data?.node_type || "Supplier"),
@@ -200,6 +313,7 @@ function App() {
       <header className="topbar">
         <div>
           <div className="brand">AtmoGraph</div>
+
           <div className="subtitle">
             Supply Chain Ripple Effect Predictor
           </div>
@@ -215,7 +329,9 @@ function App() {
         <section className="hero">
           <div>
             <p className="eyebrow">GLOBAL RISK MONITORING</p>
+
             <h1>Supply Chain Network</h1>
+
             <p className="hero-text">
               Interactive view of suppliers, manufacturers, ports,
               distributors, retailers and products.
@@ -251,10 +367,69 @@ function App() {
 
         {error && <div className="error-banner">{error}</div>}
 
+        <section className="filter-panel">
+          <div className="filter-header">
+            <div>
+              <p className="eyebrow">GRAPH FILTERS</p>
+              <h2>Explore Network</h2>
+            </div>
+
+            <button
+              className="reset-button"
+              onClick={resetFilters}
+            >
+              Reset Filters
+            </button>
+          </div>
+
+          <div className="filter-controls">
+            <div className="filter-group">
+              <label>Node Type</label>
+
+              <select
+                value={nodeTypeFilter}
+                onChange={(event) =>
+                  setNodeTypeFilter(event.target.value)
+                }
+              >
+                {NODE_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="filter-group">
+              <label>Risk Level</label>
+
+              <select
+                value={riskFilter}
+                onChange={(event) =>
+                  setRiskFilter(event.target.value)
+                }
+              >
+                {RISK_TYPES.map((risk) => (
+                  <option key={risk} value={risk}>
+                    {risk}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="filter-result">
+              Showing{" "}
+              <strong>{filteredApiNodes.length}</strong> of{" "}
+              <strong>{apiNodes.length}</strong> nodes
+            </div>
+          </div>
+        </section>
+
         <section className="graph-section">
           <div className="section-heading">
             <div>
               <p className="eyebrow">NETWORK VISUALIZATION</p>
+
               <h2>Supply Chain Graph</h2>
             </div>
 
@@ -267,6 +442,7 @@ function App() {
             {loading ? (
               <div className="loading">
                 <div className="loader"></div>
+
                 <p>Loading supply chain graph...</p>
               </div>
             ) : (
@@ -275,6 +451,8 @@ function App() {
                 edges={edges}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
+                onNodeClick={handleNodeClick}
+                onPaneClick={handlePaneClick}
                 fitView
                 fitViewOptions={{
                   padding: 0.2,
@@ -283,11 +461,80 @@ function App() {
                 maxZoom={1.5}
               >
                 <Background />
+
                 <Controls />
+
                 <MiniMap nodeColor={miniMapNodeColor} />
               </ReactFlow>
             )}
           </div>
+        </section>
+
+        <section className="details-panel">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">NODE INSPECTION</p>
+
+              <h2>Selected Node</h2>
+            </div>
+          </div>
+
+          {!selectedNode ? (
+            <div className="no-selection">
+              <p>Click a node in the graph to inspect its details.</p>
+            </div>
+          ) : (
+            <div className="node-details">
+              <div className="detail-main">
+                <div
+                  className="detail-type"
+                  style={{
+                    color: getNodeColor(selectedNode.node_type),
+                  }}
+                >
+                  {selectedNode.node_type}
+                </div>
+
+                <h3>{selectedNode.name}</h3>
+
+                <span className="detail-id">
+                  Node ID: {selectedNode.node_id}
+                </span>
+              </div>
+
+              <div className="detail-item">
+                <span>Risk Score</span>
+
+                <strong
+                  className={getRiskClass(
+                    Number(selectedNode.risk_score || 0)
+                  )}
+                >
+                  {Number(selectedNode.risk_score || 0).toFixed(2)}
+                </strong>
+              </div>
+
+              <div className="detail-item">
+                <span>Risk Level</span>
+
+                <strong
+                  className={getRiskClass(
+                    Number(selectedNode.risk_score || 0)
+                  )}
+                >
+                  {getRiskLevel(
+                    Number(selectedNode.risk_score || 0)
+                  )}
+                </strong>
+              </div>
+
+              <div className="detail-item">
+                <span>Status</span>
+
+                <strong>{selectedNode.status || "NORMAL"}</strong>
+              </div>
+            </div>
+          )}
         </section>
 
         <section className="bottom-grid">
@@ -295,6 +542,7 @@ function App() {
             <div className="section-heading">
               <div>
                 <p className="eyebrow">NODE TYPES</p>
+
                 <h2>Network Legend</h2>
               </div>
             </div>
@@ -306,6 +554,7 @@ function App() {
                     className="legend-dot"
                     style={{ background: color }}
                   ></span>
+
                   <span>{type}</span>
                 </div>
               ))}
@@ -316,18 +565,26 @@ function App() {
             <div className="section-heading">
               <div>
                 <p className="eyebrow">RISK MONITORING</p>
+
                 <h2>Top Risk Nodes</h2>
               </div>
             </div>
 
             <div className="risk-list">
               {topRisks.length === 0 ? (
-                <p className="empty-text">No risk data available.</p>
+                <p className="empty-text">
+                  No risk data available.
+                </p>
               ) : (
                 topRisks.map((node) => (
-                  <div className="risk-row" key={node.node_id}>
+                  <div
+                    className="risk-row"
+                    key={node.node_id}
+                    onClick={() => setSelectedNodeId(node.node_id)}
+                  >
                     <div>
                       <strong>{node.name}</strong>
+
                       <span>
                         {node.node_type} · {node.risk_level}
                       </span>
