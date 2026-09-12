@@ -191,6 +191,27 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  // --------------------------------------------------
+  // DAY 15 - NEWS ANALYSIS STATE
+  // --------------------------------------------------
+
+  const [newsText, setNewsText] = useState(
+    "A major strike at Rotterdam Port has caused shipment delays."
+  );
+
+  const [newsAnalysis, setNewsAnalysis] = useState(null);
+
+  const [processResult, setProcessResult] = useState(null);
+
+  const [newsLoading, setNewsLoading] = useState(false);
+  const [processLoading, setProcessLoading] = useState(false);
+
+  const [newsError, setNewsError] = useState("");
+
+  // --------------------------------------------------
+  // LOAD GRAPH
+  // --------------------------------------------------
+
   const loadGraph = useCallback(async () => {
     try {
       setLoading(true);
@@ -226,6 +247,10 @@ function App() {
   useEffect(() => {
     loadGraph();
   }, [loadGraph]);
+
+  // --------------------------------------------------
+  // FILTERS
+  // --------------------------------------------------
 
   const filteredApiNodes = useMemo(() => {
     return apiNodes.filter((node) => {
@@ -268,7 +293,10 @@ function App() {
   ]);
 
   const selectedNode = useMemo(() => {
-    return apiNodes.find((node) => node.node_id === selectedNodeId) || null;
+    return (
+      apiNodes.find((node) => node.node_id === selectedNodeId) ||
+      null
+    );
   }, [apiNodes, selectedNodeId]);
 
   const handleNodeClick = useCallback((event, node) => {
@@ -308,6 +336,106 @@ function App() {
     };
   }, [summary]);
 
+  // --------------------------------------------------
+  // DAY 15 - ANALYZE NEWS
+  // --------------------------------------------------
+
+  const analyzeNews = async () => {
+    if (!newsText.trim()) {
+      setNewsError("Please enter a news statement.");
+      return;
+    }
+
+    try {
+      setNewsLoading(true);
+      setNewsError("");
+      setNewsAnalysis(null);
+      setProcessResult(null);
+
+      const response = await axios.post(
+        `${API_BASE_URL}/news/analyze`,
+        {
+          text: newsText,
+        }
+      );
+
+      setNewsAnalysis(response.data);
+    } catch (err) {
+      console.error("News analysis failed:", err);
+
+      setNewsError(
+        err.response?.data?.detail ||
+          "Unable to analyze the news. Please check the FastAPI server."
+      );
+    } finally {
+      setNewsLoading(false);
+    }
+  };
+
+  // --------------------------------------------------
+  // DAY 15 - PROCESS NEWS
+  // --------------------------------------------------
+
+  const processNews = async () => {
+    if (!newsText.trim()) {
+      setNewsError("Please enter a news statement.");
+      return;
+    }
+
+    try {
+      setProcessLoading(true);
+      setNewsError("");
+
+      const response = await axios.post(
+        `${API_BASE_URL}/news/process`,
+        {
+          text: newsText,
+        }
+      );
+
+      setProcessResult(response.data);
+
+      // Refresh dashboard because the processing endpoint
+      // can update risk/status information.
+      await loadGraph();
+    } catch (err) {
+      console.error("News processing failed:", err);
+
+      setNewsError(
+        err.response?.data?.detail ||
+          "Unable to process the disruption."
+      );
+    } finally {
+      setProcessLoading(false);
+    }
+  };
+
+  // --------------------------------------------------
+  // DAY 15 - PROCESSING DATA
+  // --------------------------------------------------
+
+  const processAnalysis = processResult?.analysis || null;
+
+  const affectedNodes = processResult?.affected_nodes || [];
+
+  const predictions = processResult?.predictions || [];
+
+  const predictionSummary = useMemo(() => {
+    return {
+      high: predictions.filter(
+        (node) => node.risk_level === "HIGH"
+      ).length,
+
+      medium: predictions.filter(
+        (node) => node.risk_level === "MEDIUM"
+      ).length,
+
+      low: predictions.filter(
+        (node) => node.risk_level === "LOW"
+      ).length,
+    };
+  }, [predictions]);
+
   return (
     <div className="app">
       <header className="topbar">
@@ -326,6 +454,11 @@ function App() {
       </header>
 
       <main className="dashboard">
+
+        {/* --------------------------------------------------
+            HERO
+        -------------------------------------------------- */}
+
         <section className="hero">
           <div>
             <p className="eyebrow">GLOBAL RISK MONITORING</p>
@@ -342,6 +475,10 @@ function App() {
             Refresh Data
           </button>
         </section>
+
+        {/* --------------------------------------------------
+            STATS
+        -------------------------------------------------- */}
 
         <section className="stats-grid">
           <div className="stat-card">
@@ -367,10 +504,302 @@ function App() {
 
         {error && <div className="error-banner">{error}</div>}
 
+        {/* --------------------------------------------------
+            DAY 15 - NEWS ANALYSIS
+        -------------------------------------------------- */}
+
+        <section className="news-section">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">NEWS INTELLIGENCE</p>
+
+              <h2>Analyze Supply Chain Disruption</h2>
+            </div>
+          </div>
+
+          <div className="news-input-panel">
+            <label htmlFor="news-input">
+              News / Disruption Statement
+            </label>
+
+            <textarea
+              id="news-input"
+              value={newsText}
+              onChange={(event) => setNewsText(event.target.value)}
+              placeholder="Enter a supply chain disruption news statement..."
+              rows={4}
+            />
+
+            <div className="news-actions">
+              <button
+                className="analyze-button"
+                onClick={analyzeNews}
+                disabled={newsLoading || processLoading}
+              >
+                {newsLoading ? "Analyzing..." : "Analyze News"}
+              </button>
+
+              <button
+                className="process-button"
+                onClick={processNews}
+                disabled={processLoading || newsLoading}
+              >
+                {processLoading
+                  ? "Processing..."
+                  : "Process Disruption"}
+              </button>
+            </div>
+          </div>
+
+          {newsError && (
+            <div className="error-banner news-error">
+              {newsError}
+            </div>
+          )}
+
+          {/* ANALYSIS RESULT */}
+
+          {newsAnalysis && (
+            <div className="news-results">
+
+              <div className="result-card">
+                <div className="result-card-header">
+                  <h3>Extracted Entities</h3>
+
+                  <span>
+                    {newsAnalysis.entities?.length || 0}
+                  </span>
+                </div>
+
+                {newsAnalysis.entities?.length > 0 ? (
+                  <div className="entity-list">
+                    {newsAnalysis.entities.map((entity, index) => (
+                      <div className="entity-item" key={index}>
+                        <strong>{entity.text}</strong>
+
+                        <span>{entity.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="empty-text">
+                    No entities detected.
+                  </p>
+                )}
+              </div>
+
+              <div className="result-card">
+                <div className="result-card-header">
+                  <h3>Detected Disruptions</h3>
+
+                  <span>
+                    {newsAnalysis.disruptions?.length || 0}
+                  </span>
+                </div>
+
+                {newsAnalysis.disruptions?.length > 0 ? (
+                  <div className="disruption-list">
+                    {newsAnalysis.disruptions.map(
+                      (disruption, index) => (
+                        <div
+                          className="disruption-item"
+                          key={index}
+                        >
+                          <strong>{disruption.event}</strong>
+
+                          <span
+                            className={`risk-badge ${getRiskClass(
+                              disruption.severity === "high"
+                                ? 0.9
+                                : disruption.severity === "medium"
+                                ? 0.5
+                                : 0.2
+                            )}`}
+                          >
+                            {disruption.severity.toUpperCase()}
+                          </span>
+                        </div>
+                      )
+                    )}
+                  </div>
+                ) : (
+                  <p className="empty-text">
+                    No disruptions detected.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* PROCESS RESULT */}
+
+          {processResult && (
+            <div className="process-results">
+
+              <div className="process-header">
+                <div>
+                  <p className="eyebrow">
+                    RIPPLE EFFECT ANALYSIS
+                  </p>
+
+                  <h2>Disruption Impact</h2>
+                </div>
+
+                <div
+                  className={`severity-badge ${getRiskClass(
+                    processAnalysis?.selected_severity === "high"
+                      ? 0.9
+                      : processAnalysis?.selected_severity ===
+                        "medium"
+                      ? 0.5
+                      : 0.2
+                  )}`}
+                >
+                  {processResult.selected_severity?.toUpperCase()}
+                </div>
+              </div>
+
+              {/* AFFECTED NODES */}
+
+              <div className="impact-section">
+                <div className="section-heading">
+                  <div>
+                    <p className="eyebrow">DIRECT IMPACT</p>
+
+                    <h3>Affected Nodes</h3>
+                  </div>
+                </div>
+
+                <div className="affected-list">
+                  {affectedNodes.length === 0 ? (
+                    <p className="empty-text">
+                      No affected nodes detected.
+                    </p>
+                  ) : (
+                    affectedNodes.map((node) => (
+                      <div
+                        className="affected-node"
+                        key={node.node_id}
+                      >
+                        <div>
+                          <strong>{node.name}</strong>
+
+                          <span>
+                            {node.node_type} · {node.node_id}
+                          </span>
+                        </div>
+
+                        <div className="affected-risk">
+                          <strong>
+                            {Number(node.risk_score).toFixed(2)}
+                          </strong>
+
+                          <span>
+                            {node.status?.toUpperCase()}
+                          </span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* PREDICTION SUMMARY */}
+
+              <div className="prediction-summary">
+                <div className="prediction-card high-card">
+                  <span>High Risk Predictions</span>
+                  <strong>{predictionSummary.high}</strong>
+                </div>
+
+                <div className="prediction-card medium-card">
+                  <span>Medium Risk Predictions</span>
+                  <strong>{predictionSummary.medium}</strong>
+                </div>
+
+                <div className="prediction-card low-card">
+                  <span>Low Risk Predictions</span>
+                  <strong>{predictionSummary.low}</strong>
+                </div>
+              </div>
+
+              {/* GNN PREDICTIONS */}
+
+              <div className="impact-section">
+                <div className="section-heading">
+                  <div>
+                    <p className="eyebrow">
+                      GNN RISK PREDICTION
+                    </p>
+
+                    <h3>Ripple Effect Predictions</h3>
+                  </div>
+
+                  <span className="prediction-count">
+                    {predictions.length} nodes analyzed
+                  </span>
+                </div>
+
+                <div className="prediction-list">
+                  {predictions
+                    .slice()
+                    .sort(
+                      (a, b) =>
+                        Number(b.predicted_risk) -
+                        Number(a.predicted_risk)
+                    )
+                    .map((node) => (
+                      <div
+                        className="prediction-row"
+                        key={node.node_id}
+                        onClick={() =>
+                          setSelectedNodeId(node.node_id)
+                        }
+                      >
+                        <div className="prediction-info">
+                          <strong>{node.name}</strong>
+
+                          <span>
+                            {node.node_type} · {node.node_id}
+                          </span>
+                        </div>
+
+                        <div className="prediction-risk">
+                          <strong
+                            className={getRiskClass(
+                              Number(node.predicted_risk)
+                            )}
+                          >
+                            {Number(
+                              node.predicted_risk
+                            ).toFixed(4)}
+                          </strong>
+
+                          <span
+                            className={`risk-badge ${getRiskClass(
+                              Number(node.predicted_risk)
+                            )}`}
+                          >
+                            {node.risk_level}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* --------------------------------------------------
+            FILTER PANEL
+        -------------------------------------------------- */}
+
         <section className="filter-panel">
           <div className="filter-header">
             <div>
               <p className="eyebrow">GRAPH FILTERS</p>
+
               <h2>Explore Network</h2>
             </div>
 
@@ -425,6 +854,10 @@ function App() {
           </div>
         </section>
 
+        {/* --------------------------------------------------
+            GRAPH
+        -------------------------------------------------- */}
+
         <section className="graph-section">
           <div className="section-heading">
             <div>
@@ -470,6 +903,10 @@ function App() {
           </div>
         </section>
 
+        {/* --------------------------------------------------
+            NODE DETAILS
+        -------------------------------------------------- */}
+
         <section className="details-panel">
           <div className="section-heading">
             <div>
@@ -481,7 +918,9 @@ function App() {
 
           {!selectedNode ? (
             <div className="no-selection">
-              <p>Click a node in the graph to inspect its details.</p>
+              <p>
+                Click a node in the graph to inspect its details.
+              </p>
             </div>
           ) : (
             <div className="node-details">
@@ -510,7 +949,9 @@ function App() {
                     Number(selectedNode.risk_score || 0)
                   )}
                 >
-                  {Number(selectedNode.risk_score || 0).toFixed(2)}
+                  {Number(
+                    selectedNode.risk_score || 0
+                  ).toFixed(2)}
                 </strong>
               </div>
 
@@ -531,11 +972,17 @@ function App() {
               <div className="detail-item">
                 <span>Status</span>
 
-                <strong>{selectedNode.status || "NORMAL"}</strong>
+                <strong>
+                  {selectedNode.status || "NORMAL"}
+                </strong>
               </div>
             </div>
           )}
         </section>
+
+        {/* --------------------------------------------------
+            BOTTOM GRID
+        -------------------------------------------------- */}
 
         <section className="bottom-grid">
           <div className="panel">
@@ -548,16 +995,18 @@ function App() {
             </div>
 
             <div className="legend-grid">
-              {Object.entries(NODE_COLORS).map(([type, color]) => (
-                <div className="legend-item" key={type}>
-                  <span
-                    className="legend-dot"
-                    style={{ background: color }}
-                  ></span>
+              {Object.entries(NODE_COLORS).map(
+                ([type, color]) => (
+                  <div className="legend-item" key={type}>
+                    <span
+                      className="legend-dot"
+                      style={{ background: color }}
+                    ></span>
 
-                  <span>{type}</span>
-                </div>
-              ))}
+                    <span>{type}</span>
+                  </div>
+                )
+              )}
             </div>
           </div>
 
@@ -580,7 +1029,9 @@ function App() {
                   <div
                     className="risk-row"
                     key={node.node_id}
-                    onClick={() => setSelectedNodeId(node.node_id)}
+                    onClick={() =>
+                      setSelectedNodeId(node.node_id)
+                    }
                   >
                     <div>
                       <strong>{node.name}</strong>
@@ -595,7 +1046,9 @@ function App() {
                         Number(node.predicted_risk)
                       )}`}
                     >
-                      {Number(node.predicted_risk).toFixed(2)}
+                      {Number(
+                        node.predicted_risk
+                      ).toFixed(2)}
                     </div>
                   </div>
                 ))
