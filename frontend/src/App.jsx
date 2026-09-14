@@ -199,6 +199,8 @@ function App() {
   const [neighborCount, setNeighborCount] = useState(0);
   const [neighborLoading, setNeighborLoading] = useState(false);
   const [neighborError, setNeighborError] = useState("");
+  // Day 17 - Prediction Horizon / Ripple Forecast
+  const [predictionHorizon, setPredictionHorizon] = useState(30);
 
   const loadGraph = async () => {
     try {
@@ -435,6 +437,62 @@ function App() {
       }
     );
   }, [predictions]);
+  const horizonMultiplier = useMemo(() => {
+  if (predictionHorizon === 30) {
+    return 1;
+  }
+
+  if (predictionHorizon === 60) {
+    return 1.08;
+  }
+
+  return 1.15;
+}, [predictionHorizon]);
+
+const projectedPredictions = useMemo(() => {
+  return predictions.map((prediction) => {
+    const currentScore = Number(
+      prediction.predicted_risk ??
+        prediction.risk_score ??
+        prediction.score ??
+        0
+    );
+
+    const projectedScore = Math.min(
+      currentScore * horizonMultiplier,
+      1
+    );
+
+    return {
+      ...prediction,
+      projected_risk: projectedScore,
+      projected_risk_level: getRiskLevel(projectedScore),
+    };
+  });
+}, [predictions, horizonMultiplier]);
+
+const projectedSummary = useMemo(() => {
+  return projectedPredictions.reduce(
+    (result, prediction) => {
+      const level = prediction.projected_risk_level;
+
+      if (level === "HIGH") {
+        result.high += 1;
+      } else if (level === "MEDIUM") {
+        result.medium += 1;
+      } else {
+        result.low += 1;
+      }
+
+      return result;
+    },
+    {
+      high: 0,
+      medium: 0,
+      low: 0,
+    }
+  );
+}, [projectedPredictions]);
 
   const stats = {
     total: summary?.total_nodes ?? apiNodes.length,
@@ -545,7 +603,7 @@ function App() {
           <div className="section-heading">
             <div>
               <p className="section-eyebrow">
-                DAY 15 · NEWS INTELLIGENCE
+                 NEWS INTELLIGENCE
               </p>
 
               <h2>
@@ -981,7 +1039,7 @@ function App() {
           <div className="section-heading">
             <div>
               <p className="section-eyebrow">
-                DAY 16 · NODE INSPECTION
+                 NODE INSPECTION
               </p>
 
               <h2>
@@ -1175,6 +1233,132 @@ function App() {
             </div>
           )}
         </section>
+        {/* =========================
+          DAY 17 - PREDICTION HORIZON
+          ========================= */}
+          <section className="dashboard-section prediction-horizon-section">
+            <div className="section-heading">
+              <div>
+                <p className="section-eyebrow">
+                  RIPPLE FORECAST
+                </p>
+
+                <h2>Prediction Horizon</h2>
+
+                <p>
+                Explore projected supply chain risk across
+                30, 60, and 90-day horizons using the current
+                GNN ripple-effect predictions.
+                </p>
+              </div>
+
+              <div className="horizon-value">
+                {predictionHorizon} DAYS
+              </div>
+            </div>
+
+            {predictions.length === 0 ? (
+              <div className="forecast-empty">
+                <strong>No GNN predictions available yet.</strong>
+
+                <span>
+                  Process a disruption statement above to generate
+                  ripple-effect predictions.
+                </span>
+              </div>
+            ) : (
+              <>
+                <div className="horizon-control">
+                  <div className="horizon-labels">
+                    <span>30 DAYS</span>
+                    <span>60 DAYS</span>
+                    <span>90 DAYS</span>
+                  </div>
+
+                  <input
+                    type="range"
+                    min="30"
+                    max="90"
+                    step="30"
+                    value={predictionHorizon}
+                    onChange={(event) =>
+                      setPredictionHorizon(
+                        Number(event.target.value)
+                      )
+                    }
+                    className="horizon-slider"
+                  />
+
+                  <div className="horizon-buttons">
+                    {[30, 60, 90].map((days) => (
+                      <button
+                        type="button"
+                        key={days}
+                        className={
+                          predictionHorizon === days
+                            ? "horizon-button active"
+                            : "horizon-button"
+                        }
+                        onClick={() =>
+                          setPredictionHorizon(days)
+                        }
+                      >
+                        {days} Days
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="forecast-summary">
+                  <div className="forecast-card high">
+                    <span>HIGH RISK</span>
+
+                    <strong>
+                      {projectedSummary.high}
+                    </strong>
+
+                    <small>Projected nodes</small>
+                  </div>
+
+                  <div className="forecast-card medium">
+                    <span>MEDIUM RISK</span>
+
+                    <strong>
+                      {projectedSummary.medium}
+                    </strong>
+
+                    <small>Projected nodes</small>
+                  </div>
+
+                  <div className="forecast-card low">
+                    <span>LOW RISK</span>
+
+                    <strong>
+                      {projectedSummary.low}
+                    </strong>
+
+                    <small>Projected nodes</small>
+                  </div>
+
+                  <div className="forecast-card">
+                    <span>HORIZON</span>
+
+                    <strong>
+                      {predictionHorizon}
+                    </strong>
+
+                    <small>Days ahead</small>
+                  </div>
+                </div>
+
+                <p className="forecast-note">
+                  Projected values are horizon-based risk estimates
+                  derived from the current GNN prediction. The
+                  underlying GNN prediction remains unchanged.
+                </p>
+              </>
+            )}
+          </section>
 
         {/* =========================
             BOTTOM DASHBOARD
