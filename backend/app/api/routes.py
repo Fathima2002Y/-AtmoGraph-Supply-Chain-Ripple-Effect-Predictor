@@ -11,7 +11,7 @@ from backend.app.database.graph_repository import (
 
 from backend.app.nlp.news_analyzer import analyze_news
 from backend.app.nlp.disruption_processor import process_disruption_news
-
+from backend.app.gnn.prediction_service import get_current_predictions
 
 router = APIRouter(
     prefix="/api/v1",
@@ -237,6 +237,19 @@ def reset_scenario():
             ),
             "reset_nodes": reset_count
         }
+
+    except Exception as error:
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(error)
+        )
+@router.get("/predictions")
+def current_predictions():
+
+    try:
+
+        return get_current_predictions()
 
     except Exception as error:
 
