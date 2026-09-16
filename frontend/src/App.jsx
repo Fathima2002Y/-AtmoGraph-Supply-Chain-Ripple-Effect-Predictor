@@ -201,6 +201,11 @@ function App() {
   const [neighborError, setNeighborError] = useState("");
   // Day 17 - Prediction Horizon / Ripple Forecast
   const [predictionHorizon, setPredictionHorizon] = useState(30);
+  
+  // Day 18 - Real-time prediction refresh
+  const [predictionLoading, setPredictionLoading] = useState(false);
+  const [predictionUpdatedAt, setPredictionUpdatedAt] = useState("");
+  const [predictionError, setPredictionError] = useState("");
 
   const loadGraph = async () => {
     try {
@@ -404,6 +409,40 @@ function App() {
     }
   };
 
+  // Day 18 - Refresh current GNN predictions from the backend.
+  const refreshPredictions = async () => {
+    try {
+      setPredictionLoading(true);
+      setPredictionError("");
+
+      const response = await axios.get(
+        `${API_BASE_URL}/predictions`
+      );
+
+      const latestPredictions =
+        response.data.predictions || [];
+
+      setProcessResult((previousResult) => ({
+        ...(previousResult || {}),
+        predictions: latestPredictions,
+      }));
+
+      setPredictionUpdatedAt(
+        response.data.generated_at ||
+          new Date().toISOString()
+      );
+    } catch (err) {
+      console.error(err);
+
+      setPredictionError(
+        err.response?.data?.detail ||
+          "Unable to refresh GNN predictions."
+      );
+    } finally {
+      setPredictionLoading(false);
+    }
+  };
+
   const processAnalysis =
     processResult?.analysis || null;
 
@@ -437,62 +476,63 @@ function App() {
       }
     );
   }, [predictions]);
+  // Day 17 - Project current GNN predictions across the selected horizon.
   const horizonMultiplier = useMemo(() => {
-  if (predictionHorizon === 30) {
-    return 1;
-  }
-
-  if (predictionHorizon === 60) {
-    return 1.08;
-  }
-
-  return 1.15;
-}, [predictionHorizon]);
-
-const projectedPredictions = useMemo(() => {
-  return predictions.map((prediction) => {
-    const currentScore = Number(
-      prediction.predicted_risk ??
-        prediction.risk_score ??
-        prediction.score ??
-        0
-    );
-
-    const projectedScore = Math.min(
-      currentScore * horizonMultiplier,
-      1
-    );
-
-    return {
-      ...prediction,
-      projected_risk: projectedScore,
-      projected_risk_level: getRiskLevel(projectedScore),
-    };
-  });
-}, [predictions, horizonMultiplier]);
-
-const projectedSummary = useMemo(() => {
-  return projectedPredictions.reduce(
-    (result, prediction) => {
-      const level = prediction.projected_risk_level;
-
-      if (level === "HIGH") {
-        result.high += 1;
-      } else if (level === "MEDIUM") {
-        result.medium += 1;
-      } else {
-        result.low += 1;
-      }
-
-      return result;
-    },
-    {
-      high: 0,
-      medium: 0,
-      low: 0,
+    if (predictionHorizon === 30) {
+      return 1;
     }
-  );
-}, [projectedPredictions]);
+
+    if (predictionHorizon === 60) {
+      return 1.08;
+    }
+
+    return 1.15;
+  }, [predictionHorizon]);
+
+  const projectedPredictions = useMemo(() => {
+    return predictions.map((prediction) => {
+      const currentScore = Number(
+        prediction.predicted_risk ??
+          prediction.risk_score ??
+          prediction.score ??
+          0
+      );
+
+      const projectedScore = Math.min(
+        currentScore * horizonMultiplier,
+        1
+      );
+
+      return {
+        ...prediction,
+        projected_risk: projectedScore,
+        projected_risk_level: getRiskLevel(projectedScore),
+      };
+    });
+  }, [predictions, horizonMultiplier]);
+
+  const projectedSummary = useMemo(() => {
+    return projectedPredictions.reduce(
+      (result, prediction) => {
+        const level = prediction.projected_risk_level;
+
+        if (level === "HIGH") {
+          result.high += 1;
+        } else if (level === "MEDIUM") {
+          result.medium += 1;
+        } else {
+          result.low += 1;
+        }
+
+        return result;
+      },
+      {
+        high: 0,
+        medium: 0,
+        low: 0,
+      }
+    );
+  }, [projectedPredictions]);
 
   const stats = {
     total: summary?.total_nodes ?? apiNodes.length,
@@ -1256,6 +1296,37 @@ const projectedSummary = useMemo(() => {
                 {predictionHorizon} DAYS
               </div>
             </div>
+
+            {/* =========================
+                DAY 18 - PREDICTION REFRESH
+               ========================= */}
+            <div className="prediction-refresh-row">
+              <button
+                type="button"
+                className="prediction-refresh-button"
+                onClick={refreshPredictions}
+                disabled={predictionLoading}
+              >
+                {predictionLoading
+                  ? "Refreshing..."
+                  : "Refresh Predictions"}
+              </button>
+
+              {predictionUpdatedAt && (
+                <span className="prediction-updated-time">
+                  Last updated:{" "}
+                  {new Date(
+                    predictionUpdatedAt
+                  ).toLocaleTimeString()}
+                </span>
+              )}
+            </div>
+
+            {predictionError && (
+              <p className="prediction-refresh-error">
+                {predictionError}
+              </p>
+            )}
 
             {predictions.length === 0 ? (
               <div className="forecast-empty">
