@@ -1,4 +1,6 @@
-from fastapi import APIRouter, HTTPException
+import asyncio
+
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
 from backend.app.gnn.scenario_prediction import run_scenario
@@ -257,3 +259,28 @@ def current_predictions():
             status_code=500,
             detail=str(error)
         )
+    
+@router.websocket("/ws/predictions")
+async def prediction_websocket(websocket: WebSocket):
+
+    await websocket.accept()
+
+    print("Prediction WebSocket connected")
+
+    try:
+
+        while True:
+
+            predictions = get_current_predictions()
+
+            await websocket.send_json(predictions)
+
+            await asyncio.sleep(10)
+
+    except WebSocketDisconnect:
+
+        print("Prediction WebSocket disconnected")
+
+    except Exception as error:
+
+        print(f"Prediction WebSocket error: {error}")
