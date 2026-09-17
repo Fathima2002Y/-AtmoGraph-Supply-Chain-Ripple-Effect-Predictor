@@ -32,6 +32,10 @@ const NODE_TYPES = [
 
 const RISK_TYPES = ["All", "High", "Medium", "Low"];
 
+/* =========================================================
+   HELPER FUNCTIONS
+   ========================================================= */
+
 function getNodeColor(nodeType) {
   return NODE_COLORS[nodeType] || "#64748b";
 }
@@ -64,6 +68,118 @@ function getRiskLevel(riskScore) {
   return "LOW";
 }
 
+/*
+ * Extract a useful disruption name from different
+ * backend response formats.
+ *
+ * Examples:
+ * strike -> strike
+ * delay -> delay
+ * flood -> flood
+ * shutdown -> shutdown
+ */
+function getDisruptionName(disruption, sourceText = "") {
+  if (typeof disruption === "string") {
+    return disruption;
+  }
+
+  if (!disruption || typeof disruption !== "object") {
+    return "Disruption";
+  }
+
+  const possibleNames = [
+    disruption.keyword,
+    disruption.name,
+    disruption.disruption,
+    disruption.word,
+    disruption.term,
+    disruption.event,
+    disruption.label,
+    disruption.trigger,
+    disruption.disruption_type,
+    disruption.type,
+    disruption.text,
+  ];
+
+  for (const value of possibleNames) {
+    if (
+      typeof value === "string" &&
+      value.trim()
+    ) {
+      const cleanedValue = value.trim();
+
+      /*
+       * Avoid displaying generic labels such as
+       * "Disruption" when the original news text
+       * contains the actual event keyword.
+       */
+      if (
+        cleanedValue.toLowerCase() !==
+          "disruption" &&
+        cleanedValue.toLowerCase() !==
+          "event"
+      ) {
+        return cleanedValue;
+      }
+    }
+  }
+
+  /*
+   * Backend may sometimes return only a generic
+   * disruption object. In that case, identify the
+   * actual keyword from the original news text.
+   */
+  const text = String(sourceText || "").toLowerCase();
+
+  const knownKeywords = [
+    "port closure",
+    "factory shutdown",
+    "supply shortage",
+    "shipment delay",
+    "strike",
+    "delay",
+    "fire",
+    "flood",
+    "shortage",
+    "shutdown",
+    "blockage",
+    "closure",
+    "accident",
+    "attack",
+    "disruption",
+  ];
+
+  for (const keyword of knownKeywords) {
+    if (text.includes(keyword)) {
+      return keyword;
+    }
+  }
+
+  return "Disruption";
+}
+
+function getDisruptionSeverity(disruption) {
+  if (
+    typeof disruption === "string" ||
+    !disruption ||
+    typeof disruption !== "object"
+  ) {
+    return "LOW";
+  }
+
+  const severity =
+    disruption.severity ||
+    disruption.risk_level ||
+    disruption.risk ||
+    "low";
+
+  return String(severity).toUpperCase();
+}
+
+/* =========================================================
+   CREATE REACT FLOW NODES
+   ========================================================= */
+
 function createFlowNodes(apiNodes, selectedNodeId) {
   const positions = {
     Supplier: { x: 50, y: 0 },
@@ -85,27 +201,43 @@ function createFlowNodes(apiNodes, selectedNodeId) {
 
   return apiNodes.map((node) => {
     const nodeType = node.node_type || "Unknown";
-    const basePosition = positions[nodeType] || { x: 50, y: 0 };
+
+    const basePosition =
+      positions[nodeType] || {
+        x: 50,
+        y: 0,
+      };
 
     const index = counters[nodeType] || 0;
+
     counters[nodeType] = index + 1;
 
-    const riskScore = Number(node.risk_score || 0);
-    const riskLevel = getRiskLevel(riskScore);
-    const isSelected = node.node_id === selectedNodeId;
+    const riskScore = Number(
+      node.risk_score || 0
+    );
+
+    const riskLevel =
+      getRiskLevel(riskScore);
+
+    const isSelected =
+      node.node_id === selectedNodeId;
 
     return {
       id: node.node_id,
+
       position: {
         x: basePosition.x,
         y: basePosition.y + index * 95,
       },
+
       data: {
         label: (
           <div className="flow-node-content">
             <div
               className="flow-node-type"
-              style={{ color: getNodeColor(nodeType) }}
+              style={{
+                color: getNodeColor(nodeType),
+              }}
             >
               {nodeType}
             </div>
@@ -118,20 +250,29 @@ function createFlowNodes(apiNodes, selectedNodeId) {
               Risk: {riskScore.toFixed(3)}
             </div>
 
-            <div className={`flow-node-status ${getRiskClass(riskScore)}`}>
+            <div
+              className={`flow-node-status ${getRiskClass(
+                riskScore
+              )}`}
+            >
               {node.status || riskLevel}
             </div>
           </div>
         ),
       },
+
       style: {
         border: isSelected
           ? "3px solid #111827"
-          : `2px solid ${getNodeColor(nodeType)}`,
+          : `2px solid ${getNodeColor(
+              nodeType
+            )}`,
+
         borderRadius: "12px",
         padding: "10px",
         width: 190,
         background: "#ffffff",
+
         boxShadow: isSelected
           ? "0 0 0 4px rgba(37, 99, 235, 0.18), 0 8px 20px rgba(15, 23, 42, 0.15)"
           : "0 4px 12px rgba(15, 23, 42, 0.08)",
@@ -140,72 +281,167 @@ function createFlowNodes(apiNodes, selectedNodeId) {
   });
 }
 
-function createFlowEdges(apiRelationships, visibleNodeIds) {
+/* =========================================================
+   CREATE REACT FLOW EDGES
+   ========================================================= */
+
+function createFlowEdges(
+  apiRelationships,
+  visibleNodeIds
+) {
   return apiRelationships
     .filter(
       (relationship) =>
-        visibleNodeIds.has(relationship.source_id) &&
-        visibleNodeIds.has(relationship.target_id)
+        visibleNodeIds.has(
+          relationship.source_id
+        ) &&
+        visibleNodeIds.has(
+          relationship.target_id
+        )
     )
     .map((relationship, index) => ({
       id: `${relationship.source_id}-${relationship.target_id}-${relationship.relationship_type}-${index}`,
+
       source: relationship.source_id,
+
       target: relationship.target_id,
+
       type: "smoothstep",
+
       animated: false,
-      label: relationship.relationship_type,
+
+      label:
+        relationship.relationship_type,
+
       labelStyle: {
         fontSize: 9,
         fontWeight: 600,
       },
+
       labelBgStyle: {
         fill: "#ffffff",
         fillOpacity: 0.9,
       },
+
       style: {
         strokeWidth: 1.5,
       },
     }));
 }
 
+/* =========================================================
+   APP
+   ========================================================= */
+
 function App() {
   const [apiNodes, setApiNodes] = useState([]);
-  const [apiRelationships, setApiRelationships] = useState([]);
+
+  const [apiRelationships, setApiRelationships] =
+    useState([]);
 
   const [summary, setSummary] = useState(null);
+
   const [topRisks, setTopRisks] = useState([]);
 
-  const [selectedNodeId, setSelectedNodeId] = useState(null);
-  const [nodeTypeFilter, setNodeTypeFilter] = useState("All");
-  const [riskFilter, setRiskFilter] = useState("All");
+  const [selectedNodeId, setSelectedNodeId] =
+    useState(null);
 
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [nodeTypeFilter, setNodeTypeFilter] =
+    useState("All");
 
-  // Day 15 - News Intelligence
+  const [riskFilter, setRiskFilter] =
+    useState("All");
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [error, setError] =
+    useState("");
+
+  /* =======================================================
+     DAY 15 - NEWS INTELLIGENCE
+     ======================================================= */
+
   const [newsText, setNewsText] = useState(
     "A major strike at Rotterdam Port has caused shipment delays."
   );
 
-  const [newsAnalysis, setNewsAnalysis] = useState(null);
-  const [processResult, setProcessResult] = useState(null);
+  const [newsAnalysis, setNewsAnalysis] =
+    useState(null);
 
-  const [newsLoading, setNewsLoading] = useState(false);
-  const [processLoading, setProcessLoading] = useState(false);
-  const [newsError, setNewsError] = useState("");
+  const [processResult, setProcessResult] =
+    useState(null);
 
-  // Day 16 - Node Inspection / Neighbor Analysis
-  const [neighbors, setNeighbors] = useState([]);
-  const [neighborCount, setNeighborCount] = useState(0);
-  const [neighborLoading, setNeighborLoading] = useState(false);
-  const [neighborError, setNeighborError] = useState("");
-  // Day 17 - Prediction Horizon / Ripple Forecast
-  const [predictionHorizon, setPredictionHorizon] = useState(30);
-  
-  // Day 18 - Real-time prediction refresh
-  const [predictionLoading, setPredictionLoading] = useState(false);
-  const [predictionUpdatedAt, setPredictionUpdatedAt] = useState("");
-  const [predictionError, setPredictionError] = useState("");
+  const [newsLoading, setNewsLoading] =
+    useState(false);
+
+  const [processLoading, setProcessLoading] =
+    useState(false);
+
+  const [newsError, setNewsError] =
+    useState("");
+
+  /* =======================================================
+     DAY 16 - NODE INSPECTION
+     ======================================================= */
+
+  const [neighbors, setNeighbors] =
+    useState([]);
+
+  const [neighborCount, setNeighborCount] =
+    useState(0);
+
+  const [neighborLoading, setNeighborLoading] =
+    useState(false);
+
+  const [neighborError, setNeighborError] =
+    useState("");
+
+  /* =======================================================
+     DAY 17 - PREDICTION HORIZON
+     ======================================================= */
+
+  const [
+    predictionHorizon,
+    setPredictionHorizon,
+  ] = useState(30);
+
+  /* =======================================================
+     DAY 18 - MANUAL REFRESH
+     ======================================================= */
+
+  const [
+    predictionLoading,
+    setPredictionLoading,
+  ] = useState(false);
+
+  const [
+    predictionUpdatedAt,
+    setPredictionUpdatedAt,
+  ] = useState("");
+
+  const [
+    predictionError,
+    setPredictionError,
+  ] = useState("");
+
+  /* =======================================================
+     DAY 19 / DAY 20 - WEBSOCKET
+     ======================================================= */
+
+  const [
+    predictionLiveStatus,
+    setPredictionLiveStatus,
+  ] = useState("CONNECTING");
+
+  const [
+    predictionLiveUpdatedAt,
+    setPredictionLiveUpdatedAt,
+  ] = useState("");
+
+  /* =======================================================
+     LOAD GRAPH
+     ======================================================= */
 
   const loadGraph = async () => {
     try {
@@ -217,23 +453,43 @@ function App() {
         summaryResponse,
         topRiskResponse,
       ] = await Promise.all([
-        axios.get(`${API_BASE_URL}/graph`),
-        axios.get(`${API_BASE_URL}/risk/summary`),
-        axios.get(`${API_BASE_URL}/risk/top?limit=5`),
+        axios.get(
+          `${API_BASE_URL}/graph`
+        ),
+
+        axios.get(
+          `${API_BASE_URL}/risk/summary`
+        ),
+
+        axios.get(
+          `${API_BASE_URL}/risk/top?limit=5`
+        ),
       ]);
 
-      setApiNodes(graphResponse.data.nodes || []);
-      setApiRelationships(
-        graphResponse.data.relationships || []
+      setApiNodes(
+        graphResponse.data.nodes || []
       );
 
-      setSummary(summaryResponse.data);
-      setTopRisks(topRiskResponse.data.nodes || []);
+      setApiRelationships(
+        graphResponse.data.relationships ||
+          []
+      );
+
+      setSummary(
+        summaryResponse.data
+      );
+
+      setTopRisks(
+        topRiskResponse.data.nodes ||
+          []
+      );
+
       setSelectedNodeId(null);
 
-      // Clear Day 16 inspection when graph refreshes.
       setNeighbors([]);
+
       setNeighborCount(0);
+
       setNeighborError("");
     } catch (err) {
       console.error(err);
@@ -251,71 +507,263 @@ function App() {
     loadGraph();
   }, []);
 
-  // Filter API nodes before creating React Flow nodes.
+  /* =======================================================
+     WEBSOCKET CONNECTION
+     ======================================================= */
+
+  useEffect(() => {
+    let websocket = null;
+
+    let reconnectTimer = null;
+
+    let isComponentMounted = true;
+
+    const connectWebSocket = () => {
+      if (!isComponentMounted) {
+        return;
+      }
+
+      setPredictionLiveStatus(
+        "CONNECTING"
+      );
+
+      const websocketUrl =
+        API_BASE_URL.replace(
+          /^http/,
+          "ws"
+        ) + "/ws/predictions";
+
+      websocket =
+        new WebSocket(websocketUrl);
+
+      websocket.onopen = () => {
+        if (!isComponentMounted) {
+          return;
+        }
+
+        console.log(
+          "Prediction WebSocket connected"
+        );
+
+        setPredictionLiveStatus(
+          "LIVE"
+        );
+      };
+
+      websocket.onmessage = (event) => {
+        if (!isComponentMounted) {
+          return;
+        }
+
+        try {
+          const data = JSON.parse(
+            event.data
+          );
+
+          const latestPredictions =
+            data.predictions || [];
+
+          if (
+            latestPredictions.length > 0
+          ) {
+            setProcessResult(
+              (previousResult) => ({
+                ...(previousResult || {}),
+                predictions:
+                  latestPredictions,
+              })
+            );
+          }
+
+          setPredictionLiveUpdatedAt(
+            data.generated_at ||
+              new Date().toISOString()
+          );
+        } catch (parseError) {
+          console.error(
+            "Unable to parse WebSocket prediction data:",
+            parseError
+          );
+        }
+      };
+
+      websocket.onerror = () => {
+        if (!isComponentMounted) {
+          return;
+        }
+
+        console.error(
+          "Prediction WebSocket error"
+        );
+
+        setPredictionLiveStatus(
+          "OFFLINE"
+        );
+      };
+
+      websocket.onclose = () => {
+        if (!isComponentMounted) {
+          return;
+        }
+
+        console.log(
+          "Prediction WebSocket disconnected"
+        );
+
+        setPredictionLiveStatus(
+          "OFFLINE"
+        );
+
+        reconnectTimer = setTimeout(
+          () => {
+            connectWebSocket();
+          },
+          3000
+        );
+      };
+    };
+
+    connectWebSocket();
+
+    return () => {
+      isComponentMounted = false;
+
+      if (reconnectTimer) {
+        clearTimeout(
+          reconnectTimer
+        );
+      }
+
+      if (websocket) {
+        websocket.close();
+      }
+    };
+  }, []);
+
+  /* =======================================================
+     FILTERED GRAPH NODES
+     ======================================================= */
+
   const filteredApiNodes = useMemo(() => {
     return apiNodes.filter((node) => {
-      const riskScore = Number(node.risk_score || 0);
-      const riskLevel = getRiskLevel(riskScore);
+      const riskScore = Number(
+        node.risk_score || 0
+      );
+
+      const riskLevel =
+        getRiskLevel(riskScore);
 
       const matchesNodeType =
         nodeTypeFilter === "All" ||
-        node.node_type === nodeTypeFilter;
+        node.node_type ===
+          nodeTypeFilter;
 
       const matchesRisk =
         riskFilter === "All" ||
-        riskLevel === riskFilter.toUpperCase();
+        riskLevel ===
+          riskFilter.toUpperCase();
 
-      return matchesNodeType && matchesRisk;
+      return (
+        matchesNodeType &&
+        matchesRisk
+      );
     });
-  }, [apiNodes, nodeTypeFilter, riskFilter]);
+  }, [
+    apiNodes,
+    nodeTypeFilter,
+    riskFilter,
+  ]);
+
+  /* =======================================================
+     SELECTED NODE
+     ======================================================= */
 
   const selectedNode = useMemo(() => {
     return (
       apiNodes.find(
-        (node) => node.node_id === selectedNodeId
+        (node) =>
+          node.node_id ===
+          selectedNodeId
       ) || null
     );
-  }, [apiNodes, selectedNodeId]);
+  }, [
+    apiNodes,
+    selectedNodeId,
+  ]);
 
-  // FIX:
-  // Nodes and edges are derived directly from the filtered API data.
-  // This prevents the previous "1 of 33 nodes" React Flow state issue.
+  /* =======================================================
+     VISIBLE NODE IDS
+     ======================================================= */
+
   const visibleNodeIds = useMemo(() => {
     return new Set(
-      filteredApiNodes.map((node) => node.node_id)
+      filteredApiNodes.map(
+        (node) => node.node_id
+      )
     );
   }, [filteredApiNodes]);
+
+  /* =======================================================
+     REACT FLOW NODES
+     ======================================================= */
 
   const flowNodes = useMemo(() => {
     return createFlowNodes(
       filteredApiNodes,
       selectedNodeId
     );
-  }, [filteredApiNodes, selectedNodeId]);
+  }, [
+    filteredApiNodes,
+    selectedNodeId,
+  ]);
+
+  /* =======================================================
+     REACT FLOW EDGES
+     ======================================================= */
 
   const flowEdges = useMemo(() => {
     return createFlowEdges(
       apiRelationships,
       visibleNodeIds
     );
-  }, [apiRelationships, visibleNodeIds]);
+  }, [
+    apiRelationships,
+    visibleNodeIds,
+  ]);
 
-  const handleNodeClick = async (_event, node) => {
+  /* =======================================================
+     NODE CLICK
+     ======================================================= */
+
+  const handleNodeClick = async (
+    _event,
+    node
+  ) => {
     setSelectedNodeId(node.id);
 
-    // Day 16 - load connected neighbors.
     try {
       setNeighborLoading(true);
+
       setNeighborError("");
+
       setNeighbors([]);
+
       setNeighborCount(0);
 
-      const response = await axios.get(
-        `${API_BASE_URL}/graph/${node.id}/neighbors`
+      const response =
+        await axios.get(
+          `${API_BASE_URL}/graph/${node.id}/neighbors`
+        );
+
+      setNeighbors(
+        response.data.neighbors ||
+          []
       );
 
-      setNeighbors(response.data.neighbors || []);
-      setNeighborCount(response.data.neighbor_count || 0);
+      setNeighborCount(
+        response.data.neighbor_count ||
+          0
+      );
     } catch (err) {
       console.error(err);
 
@@ -328,41 +776,69 @@ function App() {
     }
   };
 
+  /* =======================================================
+     PANE CLICK
+     ======================================================= */
+
   const handlePaneClick = () => {
     setSelectedNodeId(null);
+
     setNeighbors([]);
+
     setNeighborCount(0);
+
     setNeighborError("");
   };
+
+  /* =======================================================
+     RESET FILTERS
+     ======================================================= */
 
   const resetFilters = () => {
     setNodeTypeFilter("All");
+
     setRiskFilter("All");
+
     setSelectedNodeId(null);
+
     setNeighbors([]);
+
     setNeighborCount(0);
+
     setNeighborError("");
   };
 
+  /* =======================================================
+     ANALYZE NEWS
+     ======================================================= */
+
   const analyzeNews = async () => {
     if (!newsText.trim()) {
-      setNewsError("Please enter a news or disruption statement.");
+      setNewsError(
+        "Please enter a news or disruption statement."
+      );
+
       return;
     }
 
     try {
       setNewsLoading(true);
+
       setNewsError("");
+
       setNewsAnalysis(null);
 
-      const response = await axios.post(
-        `${API_BASE_URL}/news/analyze`,
-        {
-          text: newsText,
-        }
-      );
+      const response =
+        await axios.post(
+          `${API_BASE_URL}/news/analyze`,
+          {
+            text: newsText,
+          }
+        );
 
-      setNewsAnalysis(response.data);
+      setNewsAnalysis(
+        response.data
+      );
     } catch (err) {
       console.error(err);
 
@@ -375,27 +851,38 @@ function App() {
     }
   };
 
+  /* =======================================================
+     PROCESS NEWS
+     ======================================================= */
+
   const processNews = async () => {
     if (!newsText.trim()) {
-      setNewsError("Please enter a news or disruption statement.");
+      setNewsError(
+        "Please enter a news or disruption statement."
+      );
+
       return;
     }
 
     try {
       setProcessLoading(true);
+
       setNewsError("");
+
       setProcessResult(null);
 
-      const response = await axios.post(
-        `${API_BASE_URL}/news/process`,
-        {
-          text: newsText,
-        }
+      const response =
+        await axios.post(
+          `${API_BASE_URL}/news/process`,
+          {
+            text: newsText,
+          }
+        );
+
+      setProcessResult(
+        response.data
       );
 
-      setProcessResult(response.data);
-
-      // Refresh graph/risk information after processing.
       await loadGraph();
     } catch (err) {
       console.error(err);
@@ -409,23 +896,32 @@ function App() {
     }
   };
 
-  // Day 18 - Refresh current GNN predictions from the backend.
+  /* =======================================================
+     MANUAL PREDICTION REFRESH
+     ======================================================= */
+
   const refreshPredictions = async () => {
     try {
       setPredictionLoading(true);
+
       setPredictionError("");
 
-      const response = await axios.get(
-        `${API_BASE_URL}/predictions`
-      );
+      const response =
+        await axios.get(
+          `${API_BASE_URL}/predictions`
+        );
 
       const latestPredictions =
-        response.data.predictions || [];
+        response.data.predictions ||
+        [];
 
-      setProcessResult((previousResult) => ({
-        ...(previousResult || {}),
-        predictions: latestPredictions,
-      }));
+      setProcessResult(
+        (previousResult) => ({
+          ...(previousResult || {}),
+          predictions:
+            latestPredictions,
+        })
+      );
 
       setPredictionUpdatedAt(
         response.data.generated_at ||
@@ -443,25 +939,197 @@ function App() {
     }
   };
 
+  /* =======================================================
+     PROCESS ANALYSIS DATA
+     ======================================================= */
+
   const processAnalysis =
     processResult?.analysis || null;
 
-  const affectedNodes =
-    processResult?.affected_nodes || [];
+  /* =======================================================
+     DETECTED DISRUPTIONS
+     ======================================================= */
+
+  const detectedDisruptions = useMemo(() => {
+    const processDisruptions =
+      processAnalysis?.disruptions;
+
+    if (
+      Array.isArray(
+        processDisruptions
+      ) &&
+      processDisruptions.length > 0
+    ) {
+      return processDisruptions;
+    }
+
+    const analyzedDisruptions =
+      newsAnalysis?.disruptions;
+
+    if (
+      Array.isArray(
+        analyzedDisruptions
+      ) &&
+      analyzedDisruptions.length > 0
+    ) {
+      return analyzedDisruptions;
+    }
+
+    if (
+      Array.isArray(
+        processResult?.disruptions
+      ) &&
+      processResult.disruptions.length >
+        0
+    ) {
+      return processResult.disruptions;
+    }
+
+    return [];
+  }, [
+    processAnalysis,
+    newsAnalysis,
+    processResult,
+  ]);
+
+  /* =======================================================
+     DIRECTLY AFFECTED NODES
+     ======================================================= */
+
+  const affectedNodes = useMemo(() => {
+    const backendAffectedNodes =
+      Array.isArray(
+        processResult?.affected_nodes
+      )
+        ? processResult.affected_nodes
+        : [];
+
+    if (
+      backendAffectedNodes.length > 0
+    ) {
+      return backendAffectedNodes;
+    }
+
+    const processEntities =
+      Array.isArray(
+        processAnalysis?.entities
+      )
+        ? processAnalysis.entities
+        : [];
+
+    const analyzedEntities =
+      Array.isArray(
+        newsAnalysis?.entities
+      )
+        ? newsAnalysis.entities
+        : [];
+
+    const resultEntities =
+      Array.isArray(
+        processResult?.entities
+      )
+        ? processResult.entities
+        : [];
+
+    const extractedEntities =
+      processEntities.length > 0
+        ? processEntities
+        : analyzedEntities.length >
+          0
+        ? analyzedEntities
+        : resultEntities;
+
+    if (
+      extractedEntities.length === 0
+    ) {
+      return [];
+    }
+
+    const matchedNodes = [];
+
+    extractedEntities.forEach(
+      (entity) => {
+        const entityText = String(
+          entity?.text ||
+            entity?.name ||
+            ""
+        )
+          .trim()
+          .toLowerCase();
+
+        if (!entityText) {
+          return;
+        }
+
+        const matchedNode =
+          apiNodes.find(
+            (node) => {
+              const nodeName =
+                String(
+                  node?.name || ""
+                )
+                  .trim()
+                  .toLowerCase();
+
+              return (
+                nodeName === entityText
+              );
+            }
+          );
+
+        if (
+          matchedNode &&
+          !matchedNodes.some(
+            (node) =>
+              node.node_id ===
+              matchedNode.node_id
+          )
+        ) {
+          matchedNodes.push({
+            ...matchedNode,
+            direct_impact: true,
+          });
+        }
+      }
+    );
+
+    return matchedNodes;
+  }, [
+    processResult,
+    processAnalysis,
+    newsAnalysis,
+    apiNodes,
+  ]);
+
+  /* =======================================================
+     PREDICTIONS
+     ======================================================= */
 
   const predictions =
     processResult?.predictions || [];
+
+  /* =======================================================
+     CURRENT PREDICTION SUMMARY
+     ======================================================= */
 
   const predictionSummary = useMemo(() => {
     return predictions.reduce(
       (result, prediction) => {
         const level = String(
-          prediction.risk_level || "LOW"
+          prediction.risk_level ||
+            getRiskLevel(
+              prediction.predicted_risk ??
+                prediction.risk_score ??
+                prediction.score ??
+                0
+            )
         ).toUpperCase();
 
         if (level === "HIGH") {
           result.high += 1;
-        } else if (level === "MEDIUM") {
+        } else if (
+          level === "MEDIUM"
+        ) {
           result.medium += 1;
         } else {
           result.low += 1;
@@ -476,77 +1144,120 @@ function App() {
       }
     );
   }, [predictions]);
-  // Day 17 - Project current GNN predictions across the selected horizon.
-  const horizonMultiplier = useMemo(() => {
-    if (predictionHorizon === 30) {
-      return 1;
-    }
 
-    if (predictionHorizon === 60) {
-      return 1.08;
-    }
+  /* =======================================================
+     PREDICTION HORIZON
+     ======================================================= */
 
-    return 1.15;
-  }, [predictionHorizon]);
-
-  const projectedPredictions = useMemo(() => {
-    return predictions.map((prediction) => {
-      const currentScore = Number(
-        prediction.predicted_risk ??
-          prediction.risk_score ??
-          prediction.score ??
-          0
-      );
-
-      const projectedScore = Math.min(
-        currentScore * horizonMultiplier,
-        1
-      );
-
-      return {
-        ...prediction,
-        projected_risk: projectedScore,
-        projected_risk_level: getRiskLevel(projectedScore),
-      };
-    });
-  }, [predictions, horizonMultiplier]);
-
-  const projectedSummary = useMemo(() => {
-    return projectedPredictions.reduce(
-      (result, prediction) => {
-        const level = prediction.projected_risk_level;
-
-        if (level === "HIGH") {
-          result.high += 1;
-        } else if (level === "MEDIUM") {
-          result.medium += 1;
-        } else {
-          result.low += 1;
-        }
-
-        return result;
-      },
-      {
-        high: 0,
-        medium: 0,
-        low: 0,
+  const horizonMultiplier =
+    useMemo(() => {
+      if (predictionHorizon === 30) {
+        return 1;
       }
-    );
-  }, [projectedPredictions]);
+
+      if (predictionHorizon === 60) {
+        return 1.08;
+      }
+
+      return 1.15;
+    }, [predictionHorizon]);
+
+  const projectedPredictions =
+    useMemo(() => {
+      return predictions.map(
+        (prediction) => {
+          const currentScore =
+            Number(
+              prediction.predicted_risk ??
+                prediction.risk_score ??
+                prediction.score ??
+                0
+            );
+
+          const projectedScore =
+            Math.min(
+              currentScore *
+                horizonMultiplier,
+              1
+            );
+
+          return {
+            ...prediction,
+            projected_risk:
+              projectedScore,
+            projected_risk_level:
+              getRiskLevel(
+                projectedScore
+              ),
+          };
+        }
+      );
+    }, [
+      predictions,
+      horizonMultiplier,
+    ]);
+
+  const projectedSummary =
+    useMemo(() => {
+      return projectedPredictions.reduce(
+        (result, prediction) => {
+          const level =
+            prediction.projected_risk_level;
+
+          if (level === "HIGH") {
+            result.high += 1;
+          } else if (
+            level === "MEDIUM"
+          ) {
+            result.medium += 1;
+          } else {
+            result.low += 1;
+          }
+
+          return result;
+        },
+        {
+          high: 0,
+          medium: 0,
+          low: 0,
+        }
+      );
+    }, [projectedPredictions]);
+
+  /* =======================================================
+     DASHBOARD STATS
+     ======================================================= */
 
   const stats = {
-    total: summary?.total_nodes ?? apiNodes.length,
-    high: summary?.high_risk ?? 0,
-    medium: summary?.medium_risk ?? 0,
-    low: summary?.low_risk ?? 0,
-    average: summary?.average_risk ?? 0,
+    total:
+      summary?.total_nodes ??
+      apiNodes.length,
+
+    high:
+      summary?.high_risk ?? 0,
+
+    medium:
+      summary?.medium_risk ?? 0,
+
+    low:
+      summary?.low_risk ?? 0,
+
+    average:
+      summary?.average_risk ?? 0,
   };
+
+  /* =======================================================
+     RENDER
+     ======================================================= */
 
   return (
     <div className="app">
       <header className="topbar">
         <div>
-          <div className="brand">AtmoGraph</div>
+          <div className="brand">
+            AtmoGraph
+          </div>
+
           <div className="brand-subtitle">
             Supply Chain Ripple Effect Predictor
           </div>
@@ -559,6 +1270,11 @@ function App() {
       </header>
 
       <main className="dashboard">
+
+        {/* =================================================
+            HERO
+           ================================================= */}
+
         <section className="hero">
           <div>
             <p className="eyebrow">
@@ -567,93 +1283,128 @@ function App() {
 
             <h1>
               Supply Chain Risk
-              <span> Monitoring Dashboard</span>
+              <span>
+                {" "}
+                Monitoring Dashboard
+              </span>
             </h1>
 
             <p className="hero-description">
-              Monitor supply chain dependencies, analyze
-              disruption news, and understand ripple effects
-              across connected entities.
+              Monitor supply chain dependencies,
+              analyze disruption news, and
+              understand ripple effects across
+              connected entities.
             </p>
           </div>
         </section>
 
         {error && (
           <div className="error-banner">
-            <strong>Error:</strong> {error}
+            <strong>Error:</strong>{" "}
+            {error}
           </div>
         )}
 
+        {/* =================================================
+            STATS
+           ================================================= */}
+
         <section className="stats-grid">
           <div className="stat-card">
-            <div className="stat-label">TOTAL NODES</div>
+            <div className="stat-label">
+              TOTAL NODES
+            </div>
+
             <div className="stat-value">
               {stats.total}
             </div>
+
             <div className="stat-description">
               Supply chain entities
             </div>
           </div>
 
           <div className="stat-card high-stat">
-            <div className="stat-label">HIGH RISK</div>
+            <div className="stat-label">
+              HIGH RISK
+            </div>
+
             <div className="stat-value">
               {stats.high}
             </div>
+
             <div className="stat-description">
               Critical attention required
             </div>
           </div>
 
           <div className="stat-card medium-stat">
-            <div className="stat-label">MEDIUM RISK</div>
+            <div className="stat-label">
+              MEDIUM RISK
+            </div>
+
             <div className="stat-value">
               {stats.medium}
             </div>
+
             <div className="stat-description">
               Requires monitoring
             </div>
           </div>
 
           <div className="stat-card low-stat">
-            <div className="stat-label">LOW RISK</div>
+            <div className="stat-label">
+              LOW RISK
+            </div>
+
             <div className="stat-value">
               {stats.low}
             </div>
+
             <div className="stat-description">
               Currently stable
             </div>
           </div>
 
           <div className="stat-card">
-            <div className="stat-label">AVERAGE RISK</div>
-            <div className="stat-value">
-              {Number(stats.average).toFixed(3)}
+            <div className="stat-label">
+              AVERAGE RISK
             </div>
+
+            <div className="stat-value">
+              {Number(
+                stats.average
+              ).toFixed(3)}
+            </div>
+
             <div className="stat-description">
               Overall network risk
             </div>
           </div>
         </section>
 
-        {/* =========================
-            DAY 15 - NEWS INTELLIGENCE
-           ========================= */}
+        {/* =================================================
+            NEWS INTELLIGENCE
+           ================================================= */}
+
         <section className="dashboard-section news-section">
           <div className="section-heading">
             <div>
               <p className="section-eyebrow">
-                 NEWS INTELLIGENCE
+                NEWS INTELLIGENCE
               </p>
 
               <h2>
-                Analyze Supply Chain Disruptions
+                Analyze Supply Chain
+                Disruptions
               </h2>
 
               <p>
-                Enter a news statement to extract entities,
-                identify disruptions, and process the event
-                through the supply chain risk pipeline.
+                Enter a news statement to
+                extract entities, identify
+                disruptions, and process the
+                event through the supply chain
+                risk pipeline.
               </p>
             </div>
           </div>
@@ -667,7 +1418,9 @@ function App() {
               id="newsText"
               value={newsText}
               onChange={(event) =>
-                setNewsText(event.target.value)
+                setNewsText(
+                  event.target.value
+                )
               }
               placeholder="Enter a supply chain news statement..."
               rows={5}
@@ -677,7 +1430,10 @@ function App() {
               <button
                 className="primary-button"
                 onClick={analyzeNews}
-                disabled={newsLoading || processLoading}
+                disabled={
+                  newsLoading ||
+                  processLoading
+                }
               >
                 {newsLoading
                   ? "Analyzing..."
@@ -687,7 +1443,10 @@ function App() {
               <button
                 className="secondary-button"
                 onClick={processNews}
-                disabled={newsLoading || processLoading}
+                disabled={
+                  newsLoading ||
+                  processLoading
+                }
               >
                 {processLoading
                   ? "Processing..."
@@ -698,29 +1457,45 @@ function App() {
 
           {newsError && (
             <div className="error-banner news-error">
-              <strong>News Error:</strong> {newsError}
+              <strong>
+                News Error:
+              </strong>{" "}
+              {newsError}
             </div>
           )}
 
           {newsAnalysis && (
             <div className="news-results">
+
+              {/* EXTRACTED ENTITIES */}
+
               <div className="result-card">
                 <div className="result-card-header">
-                  <h3>Extracted Entities</h3>
+                  <h3>
+                    Extracted Entities
+                  </h3>
+
                   <span className="result-count">
-                    {newsAnalysis.entities?.length || 0}
+                    {newsAnalysis.entities
+                      ?.length || 0}
                   </span>
                 </div>
 
-                {newsAnalysis.entities?.length ? (
+                {newsAnalysis.entities
+                  ?.length ? (
                   <div className="entity-list">
                     {newsAnalysis.entities.map(
-                      (entity, index) => (
+                      (
+                        entity,
+                        index
+                      ) => (
                         <div
                           className="entity-item"
                           key={`${entity.text}-${index}`}
                         >
-                          <strong>{entity.text}</strong>
+                          <strong>
+                            {entity.text}
+                          </strong>
 
                           <span className="entity-type">
                             {entity.label}
@@ -736,38 +1511,68 @@ function App() {
                 )}
               </div>
 
+              {/* DETECTED DISRUPTIONS */}
+
               <div className="result-card">
                 <div className="result-card-header">
-                  <h3>Detected Disruptions</h3>
+                  <h3>
+                    Detected Disruptions
+                  </h3>
+
                   <span className="result-count">
-                    {newsAnalysis.disruptions?.length || 0}
+                    {
+                      detectedDisruptions.length
+                    }
                   </span>
                 </div>
 
-                {newsAnalysis.disruptions?.length ? (
+                {detectedDisruptions.length >
+                0 ? (
                   <div className="disruption-list">
-                    {newsAnalysis.disruptions.map(
-                      (disruption, index) => (
-                        <div
-                          className="disruption-item"
-                          key={`${disruption.keyword}-${index}`}
-                        >
-                          <strong>
-                            {disruption.keyword ||
-                              disruption.text}
-                          </strong>
+                    {detectedDisruptions.map(
+                      (
+                        disruption,
+                        index
+                      ) => {
+                        const disruptionName =
+                          getDisruptionName(
+                            disruption,
+                            newsText
+                          );
 
-                          <span
-                            className={`severity-badge ${String(
-                              disruption.severity || "low"
-                            ).toLowerCase()}`}
+                        const severity =
+                          getDisruptionSeverity(
+                            disruption
+                          );
+
+                        return (
+                          <div
+                            className="disruption-item"
+                            key={`${disruptionName}-${index}`}
                           >
-                            {String(
-                              disruption.severity || "low"
-                            ).toUpperCase()}
-                          </span>
-                        </div>
-                      )
+                            <strong
+                              style={{
+                                display:
+                                  "block",
+                                color:
+                                  "#111827",
+                                fontWeight:
+                                  700,
+                              }}
+                            >
+                              {
+                                disruptionName
+                              }
+                            </strong>
+
+                            <span
+                              className={`severity-badge ${severity.toLowerCase()}`}
+                            >
+                              {severity}
+                            </span>
+                          </div>
+                        );
+                      }
                     )}
                   </div>
                 ) : (
@@ -779,15 +1584,22 @@ function App() {
             </div>
           )}
 
+          {/* =================================================
+              PROCESS RESULTS
+             ================================================= */}
+
           {processResult && (
             <div className="process-results">
+
               <div className="process-header">
                 <div>
                   <p className="section-eyebrow">
                     RIPPLE EFFECT ANALYSIS
                   </p>
 
-                  <h3>Disruption Impact</h3>
+                  <h3>
+                    Disruption Impact
+                  </h3>
                 </div>
 
                 {processAnalysis?.severity && (
@@ -803,6 +1615,8 @@ function App() {
                 )}
               </div>
 
+              {/* IMPACT SUMMARY */}
+
               <div className="impact-section">
                 <div className="impact-card">
                   <span className="impact-label">
@@ -815,7 +1629,8 @@ function App() {
 
                   <span>
                     affected node
-                    {affectedNodes.length !== 1
+                    {affectedNodes.length !==
+                    1
                       ? "s"
                       : ""}
                   </span>
@@ -827,10 +1642,14 @@ function App() {
                   </span>
 
                   <strong>
-                    {predictionSummary.high}
+                    {
+                      predictionSummary.high
+                    }
                   </strong>
 
-                  <span>predicted nodes</span>
+                  <span>
+                    predicted nodes
+                  </span>
                 </div>
 
                 <div className="impact-card">
@@ -839,10 +1658,14 @@ function App() {
                   </span>
 
                   <strong>
-                    {predictionSummary.medium}
+                    {
+                      predictionSummary.medium
+                    }
                   </strong>
 
-                  <span>predicted nodes</span>
+                  <span>
+                    predicted nodes
+                  </span>
                 </div>
 
                 <div className="impact-card">
@@ -851,62 +1674,92 @@ function App() {
                   </span>
 
                   <strong>
-                    {predictionSummary.low}
+                    {
+                      predictionSummary.low
+                    }
                   </strong>
 
-                  <span>predicted nodes</span>
+                  <span>
+                    predicted nodes
+                  </span>
                 </div>
               </div>
 
+              {/* AFFECTED NODES */}
+
               <div className="affected-list">
-                <h4>Affected Nodes</h4>
+                <h4>
+                  Affected Nodes
+                </h4>
 
-                {affectedNodes.length ? (
-                  affectedNodes.map((node, index) => (
-                    <div
-                      className="affected-node"
-                      key={`${node.node_id}-${index}`}
-                    >
-                      <div>
-                        <strong>
-                          {node.name || node.node_id}
-                        </strong>
+                {affectedNodes.length >
+                0 ? (
+                  affectedNodes.map(
+                    (
+                      node,
+                      index
+                    ) => (
+                      <div
+                        className="affected-node"
+                        key={`${node.node_id}-${index}`}
+                      >
+                        <div>
+                          <strong>
+                            {node.name ||
+                              node.node_id}
+                          </strong>
 
-                        <span>
-                          {node.node_type || "Node"} ·{" "}
-                          {node.node_id}
+                          <span>
+                            {node.node_type ||
+                              "Node"}{" "}
+                            ·{" "}
+                            {node.node_id}
+                          </span>
+                        </div>
+
+                        <span className="direct-impact">
+                          Direct Impact
                         </span>
                       </div>
-
-                      <span className="direct-impact">
-                        Direct Impact
-                      </span>
-                    </div>
-                  ))
+                    )
+                  )
                 ) : (
                   <p className="empty-text">
-                    No directly affected nodes returned.
+                    No directly affected
+                    nodes returned.
                   </p>
                 )}
               </div>
 
-              {predictions.length > 0 && (
+              {/* GNN PREDICTIONS */}
+
+              {predictions.length >
+                0 && (
                 <div className="prediction-list">
-                  <h4>GNN Ripple Predictions</h4>
+                  <h4>
+                    GNN Ripple Predictions
+                  </h4>
 
                   {predictions.map(
-                    (prediction, index) => {
-                      const score = Number(
-                        prediction.predicted_risk ??
-                          prediction.risk_score ??
-                          prediction.score ??
-                          0
-                      );
+                    (
+                      prediction,
+                      index
+                    ) => {
+                      const score =
+                        Number(
+                          prediction.predicted_risk ??
+                            prediction.risk_score ??
+                            prediction.score ??
+                            0
+                        );
 
-                      const level = String(
-                        prediction.risk_level ||
-                          getRiskLevel(score)
-                      ).toUpperCase();
+                      const level =
+                        String(
+                          prediction.risk_level ||
+                            getRiskLevel(
+                              score
+                            )
+                        ).toUpperCase();
 
                       return (
                         <div
@@ -935,7 +1788,9 @@ function App() {
                             </span>
 
                             <span className="prediction-score">
-                              {score.toFixed(3)}
+                              {score.toFixed(
+                                3
+                              )}
                             </span>
                           </div>
                         </div>
@@ -948,9 +1803,10 @@ function App() {
           )}
         </section>
 
-        {/* =========================
-            GRAPH FILTERS
-           ========================= */}
+        {/* =================================================
+            INTERACTIVE GRAPH
+           ================================================= */}
+
         <section className="dashboard-section">
           <div className="section-heading">
             <div>
@@ -958,57 +1814,76 @@ function App() {
                 SUPPLY CHAIN GRAPH
               </p>
 
-              <h2>Interactive Network</h2>
+              <h2>
+                Interactive Network
+              </h2>
 
               <p>
-                Select a node to inspect its risk and
-                connected supply chain relationships.
+                Select a node to inspect its
+                risk and connected supply chain
+                relationships.
               </p>
             </div>
           </div>
 
+          {/* FILTERS */}
+
           <div className="filter-panel">
             <div className="filter-group">
-              <label>Node Type</label>
+              <label>
+                Node Type
+              </label>
 
               <div className="filter-buttons">
-                {NODE_TYPES.map((type) => (
-                  <button
-                    key={type}
-                    className={
-                      nodeTypeFilter === type
-                        ? "filter-button active"
-                        : "filter-button"
-                    }
-                    onClick={() =>
-                      setNodeTypeFilter(type)
-                    }
-                  >
-                    {type}
-                  </button>
-                ))}
+                {NODE_TYPES.map(
+                  (type) => (
+                    <button
+                      key={type}
+                      className={
+                        nodeTypeFilter ===
+                        type
+                          ? "filter-button active"
+                          : "filter-button"
+                      }
+                      onClick={() =>
+                        setNodeTypeFilter(
+                          type
+                        )
+                      }
+                    >
+                      {type}
+                    </button>
+                  )
+                )}
               </div>
             </div>
 
             <div className="filter-group">
-              <label>Risk Level</label>
+              <label>
+                Risk Level
+              </label>
 
               <div className="filter-buttons">
-                {RISK_TYPES.map((risk) => (
-                  <button
-                    key={risk}
-                    className={
-                      riskFilter === risk
-                        ? "filter-button active"
-                        : "filter-button"
-                    }
-                    onClick={() =>
-                      setRiskFilter(risk)
-                    }
-                  >
-                    {risk}
-                  </button>
-                ))}
+                {RISK_TYPES.map(
+                  (risk) => (
+                    <button
+                      key={risk}
+                      className={
+                        riskFilter ===
+                        risk
+                          ? "filter-button active"
+                          : "filter-button"
+                      }
+                      onClick={() =>
+                        setRiskFilter(
+                          risk
+                        )
+                      }
+                    >
+                      {risk}
+                    </button>
+                  )
+                )}
               </div>
             </div>
 
@@ -1023,13 +1898,26 @@ function App() {
           <div className="graph-meta">
             <span>
               Showing{" "}
-              <strong>{filteredApiNodes.length}</strong>{" "}
-              of <strong>{apiNodes.length}</strong> nodes
+              <strong>
+                {
+                  filteredApiNodes.length
+                }
+              </strong>{" "}
+              of{" "}
+              <strong>
+                {apiNodes.length}
+              </strong>{" "}
+              nodes
             </span>
 
             <span>
-              <strong>{flowNodes.length}</strong> nodes ·{" "}
-              <strong>{flowEdges.length}</strong>{" "}
+              <strong>
+                {flowNodes.length}
+              </strong>{" "}
+              nodes ·{" "}
+              <strong>
+                {flowEdges.length}
+              </strong>{" "}
               relationships
             </span>
           </div>
@@ -1043,8 +1931,12 @@ function App() {
               <ReactFlow
                 nodes={flowNodes}
                 edges={flowEdges}
-                onNodeClick={handleNodeClick}
-                onPaneClick={handlePaneClick}
+                onNodeClick={
+                  handleNodeClick
+                }
+                onPaneClick={
+                  handlePaneClick
+                }
                 fitView
                 fitViewOptions={{
                   padding: 0.2,
@@ -1053,17 +1945,45 @@ function App() {
                 maxZoom={1.5}
               >
                 <Background />
+
                 <Controls />
 
                 <MiniMap
+                  position="bottom-right"
+                  pannable
+                  zoomable
                   nodeColor={(node) => {
-                    const originalNode = apiNodes.find(
-                      (item) => item.node_id === node.id
-                    );
+                    const originalNode =
+                      apiNodes.find(
+                        (item) =>
+                          item.node_id ===
+                          node.id
+                      );
 
                     return getNodeColor(
                       originalNode?.node_type
                     );
+                  }}
+                  style={{
+                    width: 220,
+                    height: 150,
+                    right: 16,
+                    bottom: 16,
+                    zIndex: 1000,
+                    display: "block",
+                    visibility: "visible",
+                    opacity: 1,
+                    position: "absolute",
+                    background:
+                      "#ffffff",
+                    border:
+                      "2px solid #cbd5e1",
+                    borderRadius:
+                      "12px",
+                    boxShadow:
+                      "0 8px 24px rgba(15, 23, 42, 0.18)",
+                    pointerEvents:
+                      "all",
                   }}
                 />
               </ReactFlow>
@@ -1071,25 +1991,27 @@ function App() {
           </div>
         </section>
 
-        {/* =========================
+        {/* =================================================
             NODE INSPECTION
-            DAY 16
-           ========================= */}
+           ================================================= */}
+
         <section className="dashboard-section inspection-section">
           <div className="section-heading">
             <div>
               <p className="section-eyebrow">
-                 NODE INSPECTION
+                NODE INSPECTION
               </p>
 
               <h2>
-                Node Details & Connected Neighbors
+                Node Details & Connected
+                Neighbors
               </h2>
 
               <p>
-                Inspect a selected supply chain node and
-                understand which entities are directly
-                connected to it.
+                Inspect a selected supply chain
+                node and understand which
+                entities are directly connected
+                to it.
               </p>
             </div>
           </div>
@@ -1100,37 +2022,53 @@ function App() {
                 +
               </div>
 
-              <h3>Select a node from the graph</h3>
+              <h3>
+                Select a node from the graph
+              </h3>
 
               <p>
-                Click any supplier, manufacturer, port,
-                distributor, retailer, or product to inspect
-                its risk and connected relationships.
+                Click any supplier,
+                manufacturer, port,
+                distributor, retailer, or
+                product to inspect its risk
+                and connected relationships.
               </p>
             </div>
           ) : (
             <div className="inspection-grid">
+
+              {/* NODE DETAILS */}
+
               <div className="node-details-card">
                 <div className="inspection-card-header">
                   <div>
                     <span
                       className="node-type-badge"
                       style={{
-                        borderColor: getNodeColor(
-                          selectedNode.node_type
-                        ),
-                        color: getNodeColor(
-                          selectedNode.node_type
-                        ),
+                        borderColor:
+                          getNodeColor(
+                            selectedNode.node_type
+                          ),
+                        color:
+                          getNodeColor(
+                            selectedNode.node_type
+                          ),
                       }}
                     >
-                      {selectedNode.node_type}
+                      {
+                        selectedNode.node_type
+                      }
                     </span>
 
-                    <h3>{selectedNode.name}</h3>
+                    <h3>
+                      {selectedNode.name}
+                    </h3>
 
                     <p>
-                      Node ID: {selectedNode.node_id}
+                      Node ID:{" "}
+                      {
+                        selectedNode.node_id
+                      }
                     </p>
                   </div>
 
@@ -1147,36 +2085,56 @@ function App() {
 
                 <div className="node-detail-grid">
                   <div>
-                    <span>Risk Score</span>
+                    <span>
+                      Risk Score
+                    </span>
+
                     <strong>
                       {Number(
-                        selectedNode.risk_score || 0
+                        selectedNode.risk_score ||
+                          0
                       ).toFixed(3)}
                     </strong>
                   </div>
 
                   <div>
-                    <span>Status</span>
+                    <span>
+                      Status
+                    </span>
+
                     <strong>
-                      {selectedNode.status || "normal"}
+                      {selectedNode.status ||
+                        "normal"}
                     </strong>
                   </div>
 
                   <div>
-                    <span>Node Type</span>
+                    <span>
+                      Node Type
+                    </span>
+
                     <strong>
-                      {selectedNode.node_type}
+                      {
+                        selectedNode.node_type
+                      }
                     </strong>
                   </div>
 
                   <div>
-                    <span>Node ID</span>
+                    <span>
+                      Node ID
+                    </span>
+
                     <strong>
-                      {selectedNode.node_id}
+                      {
+                        selectedNode.node_id
+                      }
                     </strong>
                   </div>
                 </div>
               </div>
+
+              {/* NEIGHBORS */}
 
               <div className="neighbors-card">
                 <div className="inspection-card-header">
@@ -1187,6 +2145,7 @@ function App() {
 
                     <h3>
                       Direct Neighbors
+
                       <span className="neighbor-count">
                         {neighborCount}
                       </span>
@@ -1196,7 +2155,8 @@ function App() {
 
                 {neighborLoading && (
                   <div className="neighbor-loading">
-                    Loading connected neighbors...
+                    Loading connected
+                    neighbors...
                   </div>
                 )}
 
@@ -1208,233 +2168,366 @@ function App() {
 
                 {!neighborLoading &&
                   !neighborError &&
-                  neighbors.length === 0 && (
+                  neighbors.length ===
+                    0 && (
                     <div className="neighbor-empty">
-                      No connected neighbors found.
+                      No connected
+                      neighbors found.
                     </div>
                   )}
 
                 {!neighborLoading &&
                   !neighborError &&
-                  neighbors.length > 0 && (
+                  neighbors.length >
+                    0 && (
                     <div className="neighbors-list">
-                      {neighbors.map((neighbor) => (
-                        <div
-                          className="neighbor-item"
-                          key={`${neighbor.node_id}-${neighbor.relationship_type}`}
-                        >
-                          <div className="neighbor-main">
-                            <div
-                              className="neighbor-type-dot"
-                              style={{
-                                background:
-                                  getNodeColor(
+                      {neighbors.map(
+                        (neighbor) => (
+                          <div
+                            className="neighbor-item"
+                            key={`${neighbor.node_id}-${neighbor.relationship_type}`}
+                          >
+                            <div className="neighbor-main">
+                              <div
+                                className="neighbor-type-dot"
+                                style={{
+                                  background:
+                                    getNodeColor(
+                                      neighbor.node_type
+                                    ),
+                                }}
+                              ></div>
+
+                              <div>
+                                <strong>
+                                  {
+                                    neighbor.name
+                                  }
+                                </strong>
+
+                                <span>
+                                  {
                                     neighbor.node_type
-                                  ),
-                              }}
-                            ></div>
+                                  }{" "}
+                                  ·{" "}
+                                  {
+                                    neighbor.node_id
+                                  }
+                                </span>
+                              </div>
+                            </div>
 
-                            <div>
-                              <strong>
-                                {neighbor.name}
-                              </strong>
+                            <div className="neighbor-right">
+                              <span className="relationship-badge">
+                                {
+                                  neighbor.relationship_type
+                                }
+                              </span>
 
-                              <span>
-                                {neighbor.node_type} ·{" "}
-                                {neighbor.node_id}
+                              <span
+                                className={`neighbor-risk ${getRiskClass(
+                                  neighbor.risk_score
+                                )}`}
+                              >
+                                {getRiskLevel(
+                                  neighbor.risk_score
+                                )}{" "}
+                                ·{" "}
+                                {Number(
+                                  neighbor.risk_score ||
+                                    0
+                                ).toFixed(
+                                  3
+                                )}
                               </span>
                             </div>
                           </div>
-
-                          <div className="neighbor-right">
-                            <span className="relationship-badge">
-                              {neighbor.relationship_type}
-                            </span>
-
-                            <span
-                              className={`neighbor-risk ${getRiskClass(
-                                neighbor.risk_score
-                              )}`}
-                            >
-                              {getRiskLevel(
-                                neighbor.risk_score
-                              )}{" "}
-                              ·{" "}
-                              {Number(
-                                neighbor.risk_score || 0
-                              ).toFixed(3)}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
+                        )
+                      )}
                     </div>
                   )}
               </div>
             </div>
           )}
         </section>
-        {/* =========================
-          DAY 17 - PREDICTION HORIZON
-          ========================= */}
-          <section className="dashboard-section prediction-horizon-section">
-            <div className="section-heading">
-              <div>
-                <p className="section-eyebrow">
-                  RIPPLE FORECAST
-                </p>
 
-                <h2>Prediction Horizon</h2>
+        {/* =================================================
+            PREDICTION HORIZON
+           ================================================= */}
 
-                <p>
-                Explore projected supply chain risk across
-                30, 60, and 90-day horizons using the current
-                GNN ripple-effect predictions.
-                </p>
-              </div>
-
-              <div className="horizon-value">
-                {predictionHorizon} DAYS
-              </div>
-            </div>
-
-            {/* =========================
-                DAY 18 - PREDICTION REFRESH
-               ========================= */}
-            <div className="prediction-refresh-row">
-              <button
-                type="button"
-                className="prediction-refresh-button"
-                onClick={refreshPredictions}
-                disabled={predictionLoading}
-              >
-                {predictionLoading
-                  ? "Refreshing..."
-                  : "Refresh Predictions"}
-              </button>
-
-              {predictionUpdatedAt && (
-                <span className="prediction-updated-time">
-                  Last updated:{" "}
-                  {new Date(
-                    predictionUpdatedAt
-                  ).toLocaleTimeString()}
-                </span>
-              )}
-            </div>
-
-            {predictionError && (
-              <p className="prediction-refresh-error">
-                {predictionError}
+        <section className="dashboard-section prediction-horizon-section">
+          <div className="section-heading">
+            <div>
+              <p className="section-eyebrow">
+                RIPPLE FORECAST
               </p>
+
+              <h2>
+                Prediction Horizon
+              </h2>
+
+              <p>
+                Explore projected supply chain
+                risk across 30, 60, and 90-day
+                horizons using the current GNN
+                ripple-effect predictions.
+              </p>
+            </div>
+
+            <div className="horizon-value">
+              {predictionHorizon} DAYS
+            </div>
+          </div>
+
+          {/* LIVE STATUS */}
+
+          <div
+            className="prediction-live-status"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              marginBottom: "16px",
+              flexWrap: "wrap",
+            }}
+          >
+            <span
+              className={`prediction-live-dot ${predictionLiveStatus.toLowerCase()}`}
+            ></span>
+
+            <span
+              style={{
+                fontWeight: 700,
+                letterSpacing:
+                  "0.04em",
+              }}
+            >
+              {predictionLiveStatus ===
+              "LIVE"
+                ? "LIVE"
+                : predictionLiveStatus ===
+                  "CONNECTING"
+                ? "Connecting..."
+                : "Offline"}
+            </span>
+
+            {predictionLiveUpdatedAt && (
+              <span
+                className="prediction-live-time"
+                style={{
+                  marginLeft: "4px",
+                }}
+              >
+                Updated{" "}
+                {new Date(
+                  predictionLiveUpdatedAt
+                ).toLocaleTimeString()}
+              </span>
             )}
+          </div>
 
-            {predictions.length === 0 ? (
-              <div className="forecast-empty">
-                <strong>No GNN predictions available yet.</strong>
+          {/* MANUAL REFRESH */}
 
-                <span>
-                  Process a disruption statement above to generate
-                  ripple-effect predictions.
-                </span>
-              </div>
-            ) : (
-              <>
-                <div className="horizon-control">
-                  <div className="horizon-labels">
-                    <span>30 DAYS</span>
-                    <span>60 DAYS</span>
-                    <span>90 DAYS</span>
-                  </div>
+          <div
+            className="prediction-refresh-row"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "16px",
+              flexWrap: "wrap",
+            }}
+          >
+            <button
+              type="button"
+              className="prediction-refresh-button"
+              onClick={
+                refreshPredictions
+              }
+              disabled={
+                predictionLoading
+              }
+            >
+              {predictionLoading
+                ? "Refreshing..."
+                : "Refresh Predictions"}
+            </button>
 
-                  <input
-                    type="range"
-                    min="30"
-                    max="90"
-                    step="30"
-                    value={predictionHorizon}
-                    onChange={(event) =>
-                      setPredictionHorizon(
-                        Number(event.target.value)
+            {predictionUpdatedAt && (
+              <span className="prediction-updated-time">
+                Last manual refresh:{" "}
+                {new Date(
+                  predictionUpdatedAt
+                ).toLocaleTimeString()}
+              </span>
+            )}
+          </div>
+
+          {predictionError && (
+            <p className="prediction-refresh-error">
+              {predictionError}
+            </p>
+          )}
+
+          {/* FORECAST */}
+
+          {predictions.length ===
+          0 ? (
+            <div className="forecast-empty">
+              <strong>
+                No GNN predictions
+                available yet.
+              </strong>
+
+              <span>
+                Process a disruption
+                statement above to
+                generate ripple-effect
+                predictions.
+              </span>
+            </div>
+          ) : (
+            <>
+              <div className="horizon-control">
+                <div className="horizon-labels">
+                  <span>
+                    30 DAYS
+                  </span>
+
+                  <span>
+                    60 DAYS
+                  </span>
+
+                  <span>
+                    90 DAYS
+                  </span>
+                </div>
+
+                <input
+                  type="range"
+                  min="30"
+                  max="90"
+                  step="30"
+                  value={
+                    predictionHorizon
+                  }
+                  onChange={(event) =>
+                    setPredictionHorizon(
+                      Number(
+                        event.target.value
                       )
-                    }
-                    className="horizon-slider"
-                  />
+                    )
+                  }
+                  className="horizon-slider"
+                />
 
-                  <div className="horizon-buttons">
-                    {[30, 60, 90].map((days) => (
+                <div className="horizon-buttons">
+                  {[30, 60, 90].map(
+                    (days) => (
                       <button
                         type="button"
                         key={days}
                         className={
-                          predictionHorizon === days
+                          predictionHorizon ===
+                          days
                             ? "horizon-button active"
                             : "horizon-button"
                         }
                         onClick={() =>
-                          setPredictionHorizon(days)
+                          setPredictionHorizon(
+                            days
+                          )
                         }
                       >
                         {days} Days
                       </button>
-                    ))}
-                  </div>
+                    )
+                  )}
+                </div>
+              </div>
+
+              <div className="forecast-summary">
+                <div className="forecast-card high">
+                  <span>
+                    HIGH RISK
+                  </span>
+
+                  <strong>
+                    {
+                      projectedSummary.high
+                    }
+                  </strong>
+
+                  <small>
+                    Projected nodes
+                  </small>
                 </div>
 
-                <div className="forecast-summary">
-                  <div className="forecast-card high">
-                    <span>HIGH RISK</span>
+                <div className="forecast-card medium">
+                  <span>
+                    MEDIUM RISK
+                  </span>
 
-                    <strong>
-                      {projectedSummary.high}
-                    </strong>
+                  <strong>
+                    {
+                      projectedSummary.medium
+                    }
+                  </strong>
 
-                    <small>Projected nodes</small>
-                  </div>
-
-                  <div className="forecast-card medium">
-                    <span>MEDIUM RISK</span>
-
-                    <strong>
-                      {projectedSummary.medium}
-                    </strong>
-
-                    <small>Projected nodes</small>
-                  </div>
-
-                  <div className="forecast-card low">
-                    <span>LOW RISK</span>
-
-                    <strong>
-                      {projectedSummary.low}
-                    </strong>
-
-                    <small>Projected nodes</small>
-                  </div>
-
-                  <div className="forecast-card">
-                    <span>HORIZON</span>
-
-                    <strong>
-                      {predictionHorizon}
-                    </strong>
-
-                    <small>Days ahead</small>
-                  </div>
+                  <small>
+                    Projected nodes
+                  </small>
                 </div>
 
-                <p className="forecast-note">
-                  Projected values are horizon-based risk estimates
-                  derived from the current GNN prediction. The
-                  underlying GNN prediction remains unchanged.
-                </p>
-              </>
-            )}
-          </section>
+                <div className="forecast-card low">
+                  <span>
+                    LOW RISK
+                  </span>
 
-        {/* =========================
+                  <strong>
+                    {
+                      projectedSummary.low
+                    }
+                  </strong>
+
+                  <small>
+                    Projected nodes
+                  </small>
+                </div>
+
+                <div className="forecast-card">
+                  <span>
+                    HORIZON
+                  </span>
+
+                  <strong>
+                    {predictionHorizon}
+                  </strong>
+
+                  <small>
+                    Days ahead
+                  </small>
+                </div>
+              </div>
+
+              <p className="forecast-note">
+                Projected values are
+                horizon-based risk estimates
+                derived from the current GNN
+                prediction. The underlying
+                GNN prediction remains
+                unchanged.
+              </p>
+            </>
+          )}
+        </section>
+
+        {/* =================================================
             BOTTOM DASHBOARD
-           ========================= */}
+           ================================================= */}
+
         <section className="bottom-grid">
+          {/* RISK DISTRIBUTION */}
+
           <div className="dashboard-panel">
             <div className="panel-header">
               <div>
@@ -1442,7 +2535,9 @@ function App() {
                   RISK DISTRIBUTION
                 </p>
 
-                <h3>Network Risk Overview</h3>
+                <h3>
+                  Network Risk Overview
+                </h3>
               </div>
             </div>
 
@@ -1453,7 +2548,9 @@ function App() {
                   High Risk
                 </span>
 
-                <strong>{stats.high}</strong>
+                <strong>
+                  {stats.high}
+                </strong>
               </div>
 
               <div className="risk-overview-row">
@@ -1462,7 +2559,9 @@ function App() {
                   Medium Risk
                 </span>
 
-                <strong>{stats.medium}</strong>
+                <strong>
+                  {stats.medium}
+                </strong>
               </div>
 
               <div className="risk-overview-row">
@@ -1471,10 +2570,14 @@ function App() {
                   Low Risk
                 </span>
 
-                <strong>{stats.low}</strong>
+                <strong>
+                  {stats.low}
+                </strong>
               </div>
             </div>
           </div>
+
+          {/* TOP RISKS */}
 
           <div className="dashboard-panel">
             <div className="panel-header">
@@ -1483,56 +2586,82 @@ function App() {
                   TOP RISK NODES
                 </p>
 
-                <h3>Highest Risk Entities</h3>
+                <h3>
+                  Highest Risk Entities
+                </h3>
               </div>
             </div>
 
             <div className="top-risk-list">
               {topRisks.length > 0 ? (
-                topRisks.map((node, index) => (
-                  <div
-                    className="top-risk-item"
-                    key={node.node_id || index}
-                    onClick={() =>
-                      handleNodeClick(
-                        null,
-                        { id: node.node_id }
-                      )
-                    }
-                  >
-                    <div className="top-risk-rank">
-                      {index + 1}
-                    </div>
+                topRisks.map(
+                  (node, index) => {
+                    const topRiskScore =
+                      Number(
+                        node.predicted_risk ??
+                          node.risk_score ??
+                          node.score ??
+                          0
+                      );
 
-                    <div className="top-risk-info">
-                      <strong>
-                        {node.name || node.node_id}
-                      </strong>
+                    return (
+                      <div
+                        className="top-risk-item"
+                        key={
+                          node.node_id ||
+                          index
+                        }
+                        onClick={() =>
+                          handleNodeClick(
+                            null,
+                            {
+                              id: node.node_id,
+                            }
+                          )
+                        }
+                      >
+                        <div className="top-risk-rank">
+                          {index + 1}
+                        </div>
 
-                      <span>
-                        {node.node_type || "Node"}
-                      </span>
-                    </div>
+                        <div className="top-risk-info">
+                          <strong>
+                            {node.name ||
+                              node.node_id}
+                          </strong>
 
-                    <div
-                      className={`top-risk-score ${getRiskClass(
-                        node.predicted_risk
-                      )}`}
-                    >
-                      {Number(
-                        node.predicted_risk || 0
-                      ).toFixed(3)}
-                    </div>
-                  </div>
-                ))
+                          <span>
+                            {node.node_type ||
+                              "Node"}
+                          </span>
+                        </div>
+
+                        <div
+                          className={`top-risk-score ${getRiskClass(
+                            topRiskScore
+                          )}`}
+                        >
+                          {topRiskScore.toFixed(
+                            3
+                          )}
+                        </div>
+                      </div>
+                    );
+                  }
+                )
               ) : (
                 <p className="empty-text">
-                  No risk data available.
+                  No risk data
+                  available.
                 </p>
               )}
             </div>
           </div>
         </section>
+
+        {/* =================================================
+            LEGEND
+           ================================================= */}
 
         <section className="legend-section">
           <div className="legend-title">
@@ -1540,7 +2669,9 @@ function App() {
           </div>
 
           <div className="legend-items">
-            {Object.entries(NODE_COLORS).map(
+            {Object.entries(
+              NODE_COLORS
+            ).map(
               ([type, color]) => (
                 <div
                   className="legend-item"
@@ -1549,7 +2680,8 @@ function App() {
                   <span
                     className="legend-square"
                     style={{
-                      backgroundColor: color,
+                      backgroundColor:
+                        color,
                     }}
                   ></span>
 
@@ -1559,6 +2691,7 @@ function App() {
             )}
           </div>
         </section>
+
       </main>
     </div>
   );
